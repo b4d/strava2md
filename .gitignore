@@ -1,4 +1,5 @@
 config.py
+.auth
 *.md
 *.pyc
 !README.md
