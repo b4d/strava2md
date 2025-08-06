@@ -38,4 +38,3 @@ tags: %(TAGS)s
 ## Photos
 
 %(PHOTOS)s
-
