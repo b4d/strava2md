@@ -323,7 +323,7 @@ if __name__ == "__main__":
         action="store",
         required=True,
         type=str,
-        help="Comma-separated list of activity IDs (no spaces)",
+        help="Comma-separated list of activity IDs (no spaces, example: 1,2,3,4,5)",
     )
     parser.add_argument("-v", "--verbose", action="store_true", help="Verbose output.")
 
