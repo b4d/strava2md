@@ -19,16 +19,24 @@ import polyline
 import numpy as np
 import os
 import argparse, sys
-from config import access_token
+from config import OAUTH_CLIENT_ID, OAUTH_CLIENT_SECRET, OAUTH_CBACK_URL
+
+# OAuth workflow
+import webbrowser, threading, re
+from http.server import BaseHTTPRequestHandler, HTTPServer
 
 # To be cleaned up:
 #url = f"https://www.strava.com/api/v3/activities/{activity_id}"
 # ls Rides/*.md | sed -E 's/.*-([0-9]+)\.md/\1/' | tr '\n' ',' | sed 's/,$/\n/' | sed 's/^/[/' | sed 's/$/]/'
-# Set the headers
-headers = {"Authorization": f"Bearer {access_token}"}
 # Strava root API
 STRAVA_API_ROOT = "https://www.strava.com/api/v3"
 VERBOSE=False
+
+# These badbois get populated with oauth flow:
+oauthcode="" 
+access_token = ""
+headers=""
+
 
 # Return array of activity IDs where suffer_score (relative effort) is over 200
 def get_sufferfest_activities(access_token, suffer_threshold=200, per_page=100, max_pages=10):
@@ -234,7 +242,9 @@ def list_photos(activity_id):
 def fetch_activity_data(activity_id):
     url = f"{STRAVA_API_ROOT}/activities/{activity_id}"
     response = requests.get(url, headers=headers)
-
+    if VERBOSE:
+        print(headers)
+        print(url)
     if response.status_code != 200:
         print(f"⚠️ Failed to fetch activity {activity_id} Error: {response.status_code} - {response.text}")
         return
@@ -264,7 +274,7 @@ def fetch_activity_data(activity_id):
     svg_map_line = polyline2svg(activity_summary['line'])
     svg_elevation_plot = plotStream(activity_id)
     photos = list_photos(activity_id)
-    return (activity_summary, svg_map_line, svg_elevation_plot, photos)
+    return activity_summary, svg_map_line, svg_elevation_plot, photos
 
 def generate_markdown(_summary, _svg_elev, _svg_map, _photos, _ftemplate='post_template.md'):
     with open(_ftemplate,'r') as t:
@@ -297,14 +307,41 @@ def save_markdown(_content, _fname):
         f.write(_content)
     print(f"✅ Created: {_fname}")
 
+class WebRequestHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header("Content-type", "text/html")
+        self.end_headers()
+        global oauthcode
+        oauthcode = re.findall("code=(.*)&", self.path)[0]
+        self.wfile.write(bytes("<html><body><script>window.close();</script></body></html>", "utf-8"))
+
+def strava_oauth2(_cid, _secret, _cbackurl):
+    _tkn = ''
+    _url = f"https://www.strava.com/oauth/authorize?client_id={_cid}&response_type=code&redirect_uri={_cbackurl}&approval_prompt=force&scope=activity:read_all"
+    # spin up oAuth2 httpd listerner
+    server = HTTPServer((_cbackurl.split("/")[-3:-1][1].split(":")[0], int(_cbackurl.split("/")[-3:-1][1].split(":")[1])), WebRequestHandler)
+    # redirect user to the page:
+    webbrowser.open_new(_url)
+    # listen for callback
+    server.handle_request()
+    _url2 = f"https://www.strava.com/oauth/token?client_id={_cid}&client_secret={_secret}&code={oauthcode}&grant_type=authorization_code"
+    x = requests.post(_url2)
+    _tkn = x.json()['access_token']
+    return _tkn
+
 def main(args):
     activities_list = args.ids.split(',')
+    
+    # authorisation workflow
+    access_token = strava_oauth2(_cid=OAUTH_CLIENT_ID, _secret=OAUTH_CLIENT_SECRET, _cbackurl=OAUTH_CBACK_URL)
+    headers = {"Authorization": f"Bearer {access_token}"}
 
     # Ensure subfolder
     os.makedirs("Rides", exist_ok=True)
 
     for activity_id in activities_list:
-        (summary, svg_map, svg_elev, photos) = fetch_activity_data(activity_id)
+        summary, svg_map, svg_elev, photos = fetch_activity_data(activity_id)
         markdown_post = generate_markdown(_summary=summary,
                                         _svg_elev=svg_elev,
                                         _svg_map = svg_map,

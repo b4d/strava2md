@@ -1,5 +1,7 @@
-# Set up your access token
-access_token = "XXXXXXXXXXXXXXXXXXXXXX"
-
-# Activities to parse:
-activities_list = [xxxx,xxxxxx]
+# Set up your Strava API application
+# Client ID
+OAUTH_CLIENT_ID = "...."
+# Client secret
+OAUTH_CLIENT_SECRET = "...."
+# authorization callback domain
+OAUTH_CBACK_URL = "http://localhost:8088/exchange_token"
