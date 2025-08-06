@@ -166,6 +166,31 @@ def plotStream(activity_id):
         distances = []
         print(f"⚠️ Elevation stream fetch failed: {stream_response.status_code} {activity_id}")
 
+
+
+def polyline2geojson(_polyline, _encoded=True):
+    _polyline = polyline.decode(_polyline) if _encoded else _polyline
+    geojson = {
+                        "type": "FeatureCollection",
+                        "features": [
+                            {
+                            "type": "Feature",
+                            "geometry": {
+                                "type": "LineString",
+                                "coordinates": []
+                            },
+                            "properties": {
+                            "name":"activity"
+                            }
+                            }
+                        ]
+                        }
+
+    for point in _polyline:
+        geojson['features'][0]['geometry']['coordinates'].append([point[1],point[0]])
+
+    return geojson
+
 # Route trace - SVG
 def polyline2svg(polyline_str):
 
@@ -294,17 +319,24 @@ def fetch_activity_data(activity_id):
 
     # Prepare the map, elevation plot and photos
     svg_map_line = polyline2svg(activity_summary['line'])
+    geojson_line = polyline2geojson(activity_summary['line'])
     svg_elevation_plot = plotStream(activity_id)
     photos = list_photos(activity_id)
-    return activity_summary, svg_map_line, svg_elevation_plot, photos
+    return activity_summary, (svg_map_line, geojson_line), svg_elevation_plot, photos
 
-def generate_markdown(_summary, _svg_elev, _svg_map, _photos, _ftemplate='post_template.md'):
+def generate_markdown(_summary, _svg_elev, _svg_map, _photos, _geojson, _ftemplate='post_template.md', _leaftemplate='leaflet_template.html'):
     with open(_ftemplate,'r') as t:
         post_template=t.read()
         t.close()
+
+    with open(_leaftemplate,'r') as t:
+        leaflet_template=t.read()
+        t.close()
+
     rideImg = f"\n![Ride Image]({_summary['image']})\n" if _summary['image'] else ''
     svg_elevation_plot = _svg_elev if _svg_elev else ''
-    svg_map_line = _svg_map if _svg_map else ''
+    leaflet = leaflet_template % {'GEOJSON':str(_geojson) }
+    svg_map_line = _svg_map if not _geojson else leaflet
     generated_markdown = post_template % {
                         'ID':_summary['id'],
                         'TITLE':_summary['name'],
@@ -411,19 +443,20 @@ def main(args):
 
     for activity_id in activities_list:
         if args.verbose: print (f"ID: {activity_id}")
-        summary, svg_map, svg_elev, photos = fetch_activity_data(activity_id)
+        summary, (svg_map,geojson_map), svg_elev, photos = fetch_activity_data(activity_id)
         # 'summary' variable will equal to activity_id (type: string) if fetch failed
         # else it will be type of dict
         # Hack/workaround untill we create custom exceptions that allow us to handle this
         if isinstance(summary, str):
             print(f"⚠️ Skipping activity ID {activity_id} due to fetching issues")
             continue
-        
+
         # save activity if longer than DescrLimit parameter.
         if len(summary['description_parsed']) >= args.descrlimit:
-            markdown_post = generate_markdown(_summary=summary,
-                                            _svg_elev=svg_elev,
+            markdown_post = generate_markdown(_summary = summary,
+                                            _svg_elev = svg_elev,
                                             _svg_map = svg_map,
+                                            _geojson = geojson_map,
                                             _photos = photos)
             filename = f"Rides/{summary['start_date']}-{summary['id']}.md"
             save_markdown(_content=markdown_post, _fname=filename)
