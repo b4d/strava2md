@@ -18,10 +18,8 @@ from datetime import timedelta
 import polyline
 import numpy as np
 import os
+from config import access_token
 
-# Set up the endpoint and your access token
-
-access_token = "XXXXXXXXXXXXXXXXXXXXXX"
 #url = f"https://www.strava.com/api/v3/activities/{activity_id}"
 
 
@@ -326,12 +324,15 @@ tags: ["rides", "mtb", "cycling", "bike"]
 
     print(f"✅ Created: {filename}")
 
+def main():
+    # Print a list of all MTB activities 
+    # print(get_mtb_ride_ids(access_token))
+
+    for activity_id in activities_list:
+        save_activity_markdown(activity_id)
 
 
 
+if __name__=='__main__':
+    main()
 
-# Print a list of all MTB activities 
-# print(get_mtb_ride_ids(access_token))
-
-for activity_id in activities_list:
-    save_activity_markdown(activity_id)
