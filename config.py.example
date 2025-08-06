@@ -1,5 +1,0 @@
-# Set up your access token
-access_token = "XXXXXXXXXXXXXXXXXXXXXX"
-
-# Activities to parse:
-activities_list = [xxxx,xxxxxx]
