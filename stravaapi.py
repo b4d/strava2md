@@ -33,9 +33,9 @@ STRAVA_API_ROOT = "https://www.strava.com/api/v3"
 VERBOSE=False
 
 # These badbois get populated with oauth flow:
-oauthcode="" 
+oauthcode = "" 
 access_token = ""
-headers=""
+headers = ""
 
 
 # Return array of activity IDs where suffer_score (relative effort) is over 200
@@ -239,12 +239,9 @@ def list_photos(activity_id):
         return f"⚠️ Error: {response.status_code} - {response.text}"
 
 
-def fetch_activity_data(activity_id):
+def fetch_activity_data(activity_id, _descrLimit=200):
     url = f"{STRAVA_API_ROOT}/activities/{activity_id}"
     response = requests.get(url, headers=headers)
-    if VERBOSE:
-        print(headers)
-        print(url)
     if response.status_code != 200:
         print(f"⚠️ Failed to fetch activity {activity_id} Error: {response.status_code} - {response.text}")
         return
@@ -266,7 +263,7 @@ def fetch_activity_data(activity_id):
     }
 
     # Check if activity has more than X chars of description:
-    if len(activity_summary['description_parsed']) < 200:
+    if len(activity_summary['description_parsed']) < _descrLimit:
         print(f"⏭️ Skipping {activity_id} — description too short.")
         return  # Skip to next activity
 
@@ -332,16 +329,17 @@ def strava_oauth2(_cid, _secret, _cbackurl):
 
 def main(args):
     activities_list = args.ids.split(',')
-    
+
     # authorisation workflow
     access_token = strava_oauth2(_cid=OAUTH_CLIENT_ID, _secret=OAUTH_CLIENT_SECRET, _cbackurl=OAUTH_CBACK_URL)
+    global headers
     headers = {"Authorization": f"Bearer {access_token}"}
-
+    
     # Ensure subfolder
     os.makedirs("Rides", exist_ok=True)
 
     for activity_id in activities_list:
-        summary, svg_map, svg_elev, photos = fetch_activity_data(activity_id)
+        summary, svg_map, svg_elev, photos = fetch_activity_data(activity_id, _descrLimit=10)
         markdown_post = generate_markdown(_summary=summary,
                                         _svg_elev=svg_elev,
                                         _svg_map = svg_map,
