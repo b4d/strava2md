@@ -325,7 +325,7 @@ tags: ["rides", "mtb", "cycling", "bike"]
     print(f"✅ Created: {filename}")
 
 def main(args):
-    activities_list = args.activity_ids.split(',')
+    activities_list = args.ids.split(',')
 
     for activity_id in activities_list:
         save_activity_markdown(activity_id)
@@ -336,12 +336,10 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         prog="Strava2.MD", description="Pull Strava activity information into nice hugo-compatibile .md file."
     )
-    group = parser.add_mutually_exclusive_group(required=True)
-    group.add_argument(
+    parser.add_argument(
         "-i",
         "--ids",
-        action="id",
-        metavar="activity_ids",
+        action="store",
         required=True,
         type=str,
         help="Comma-separated list of activity IDs (no spaces)",
