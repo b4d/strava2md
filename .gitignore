@@ -2,4 +2,6 @@ config.py
 *.md
 *.pyc
 !README.md
+!post_template.md
 ./tmp/*
+Rides/*

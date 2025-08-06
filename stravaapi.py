@@ -24,11 +24,11 @@ from config import access_token
 # To be cleaned up:
 #url = f"https://www.strava.com/api/v3/activities/{activity_id}"
 # ls Rides/*.md | sed -E 's/.*-([0-9]+)\.md/\1/' | tr '\n' ',' | sed 's/,$/\n/' | sed 's/^/[/' | sed 's/$/]/'
-
 # Set the headers
 headers = {"Authorization": f"Bearer {access_token}"}
 # Strava root API
 STRAVA_API_ROOT = "https://www.strava.com/api/v3"
+VERBOSE=False
 
 # Return array of activity IDs where suffer_score (relative effort) is over 200
 def get_sufferfest_activities(access_token, suffer_threshold=200, per_page=100, max_pages=10):
@@ -231,7 +231,7 @@ def list_photos(activity_id):
         return f"⚠️ Error: {response.status_code} - {response.text}"
 
 
-def save_activity_markdown(activity_id):
+def fetch_activity_data(activity_id):
     url = f"{STRAVA_API_ROOT}/activities/{activity_id}"
     response = requests.get(url, headers=headers)
 
@@ -241,6 +241,7 @@ def save_activity_markdown(activity_id):
     
     data = response.json()
     activity_summary = {
+        "id": activity_id,
         "name": data.get("name"),
         "distance_km": round(data.get("distance", 0) / 1000, 2),
         "moving_time": str(timedelta(seconds=data.get("moving_time", 0))),
@@ -263,73 +264,53 @@ def save_activity_markdown(activity_id):
     svg_map_line = polyline2svg(activity_summary['line'])
     svg_elevation_plot = plotStream(activity_id)
     photos = list_photos(activity_id)
+    return (activity_summary, svg_map_line, svg_elevation_plot, photos)
 
-   
-    # create MD post
+def generate_markdown(_summary, _svg_elev, _svg_map, _photos, _ftemplate='post_template.md'):
+    with open(_ftemplate,'r') as t:
+        post_template=t.read()
+        t.close()
+    rideImg = f"\n![Ride Image]({_summary['image']})\n" if _summary['image'] else ''
+    svg_elevation_plot = _svg_elev if _svg_elev else ''
+    svg_map_line = _svg_map if _svg_map else ''
+    generated_markdown = post_template % {
+                        'ID':_summary['id'],
+                        'TITLE':_summary['name'],
+                        'DATE':_summary['nastart_dateme'],
+                        'ISDRAFT':'false',
+                        'CATS':'["MTB"]',
+                        'TAGS':'["rides", "mtb", "cycling", "bike"]',
+                        'RIDEIMG': rideImg,
+                        'DISTANCE': _summary['distance_km'],
+                        'ELE_GAIN': _summary['elevation_gain_m'],
+                        'TIME_MOV':_summary['moving_time'],
+                        'TIME_ELA': _summary['elapsed_time'],
+                        'SVG_MAP': svg_map_line,
+                        'SVG_ELEV': svg_elevation_plot,
+                        'DESCR': _summary['description_parsed'],
+                        'PHOTOS':_photos,
+    }
+    return generated_markdown
 
-    markdown_post = f"""---
-title: "{activity_summary['name']}"
-date: "{activity_summary['start_date']}"
-draft: false
-categories: ["MTB"]
-tags: ["rides", "mtb", "cycling", "bike"]
----
-
-> Data parsed automatically from [Strava](https://www.strava.com)
-
-
-    """
-    # Add image if available
-    if activity_summary["image"]:
-        markdown_post += f"\n![Ride Image]({activity_summary['image']})\n"
-
-    markdown_post += f"""
-
-## Info
-
-- **Date:** {activity_summary['start_date']}
-- **Distance:** {activity_summary['distance_km']} km
-- **Elevation Gain:** {activity_summary['elevation_gain_m']} m
-- **Moving Time:** {activity_summary['moving_time']}
-- **Elapsed Time:** {activity_summary['elapsed_time']}
-- [{activity_summary['name']} on Strava](https://www.strava.com/activities/{activity_id})
-
----
-
-## Map
-{svg_map_line}
-
-## Elevation Profile
-{svg_elevation_plot}
-
----
-
-## Description
-
-{activity_summary['description_parsed']}
-
----
-
-## Photos
-
-{photos}
-
-"""
-
-    # Save ride to a file in subfolder Rides
-    os.makedirs("Rides", exist_ok=True)
-    filename = f"Rides/{activity_summary['start_date']}-{activity_id}.md"
-    with open(filename, "w", encoding="utf-8") as f:
-        f.write(markdown_post)
-
-    print(f"✅ Created: {filename}")
+def save_markdown(_content, _fname):
+    with open(_fname, "w", encoding="utf-8") as f:
+        f.write(_content)
+    print(f"✅ Created: {_fname}")
 
 def main(args):
     activities_list = args.ids.split(',')
 
-    for activity_id in activities_list:
-        save_activity_markdown(activity_id)
+    # Ensure subfolder
+    os.makedirs("Rides", exist_ok=True)
 
+    for activity_id in activities_list:
+        (summary, svg_map, svg_elev, photos) = fetch_activity_data(activity_id)
+        markdown_post = generate_markdown(_summary=summary,
+                                        _svg_elev=svg_elev,
+                                        _svg_map = svg_map,
+                                        _photos = photos)
+        filename = f"Rides/{summary['start_date']}-{summary['id']}.md"
+        save_markdown(_content=markdown_post, _fname=filename)
 
 
 if __name__ == "__main__":
@@ -347,4 +328,6 @@ if __name__ == "__main__":
     parser.add_argument("-v", "--verbose", action="store_true", help="Verbose output.")
 
     args = parser.parse_args(args=None if sys.argv[1:] else ["--help"])
+    if args.verbose:
+        VERBOSE=True
     main(args)
