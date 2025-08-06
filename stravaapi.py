@@ -343,7 +343,7 @@ if __name__ == "__main__":
         action="id",
         metavar="activity_ids",
         required=True,
-        type=str
+        type=str,
         help="Comma-separated list of activity IDs (no spaces)",
     )
     parser.add_argument("-v", "--verbose", action="store_true", help="Verbose output.")
