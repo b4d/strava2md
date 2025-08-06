@@ -39,4 +39,3 @@ tags: %(TAGS)s
 
 %(PHOTOS)s
 
-"""
