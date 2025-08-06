@@ -276,7 +276,7 @@ def generate_markdown(_summary, _svg_elev, _svg_map, _photos, _ftemplate='post_t
     generated_markdown = post_template % {
                         'ID':_summary['id'],
                         'TITLE':_summary['name'],
-                        'DATE':_summary['nastart_dateme'],
+                        'DATE':_summary['start_dateme'],
                         'ISDRAFT':'false',
                         'CATS':'["MTB"]',
                         'TAGS':'["rides", "mtb", "cycling", "bike"]',
