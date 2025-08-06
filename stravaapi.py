@@ -7,10 +7,9 @@
     - Put that file in the blog/Rides/ folder
 
 TODO:
-    - leafletJS map
+    - leafletJS map # DONE and DONE
         - elevation profile
         - photos at coordinates as popups
-
 """
 
 import requests
@@ -167,24 +166,23 @@ def plotStream(activity_id):
         print(f"⚠️ Elevation stream fetch failed: {stream_response.status_code} {activity_id}")
 
 
-
 def polyline2geojson(_polyline, _encoded=True):
     _polyline = polyline.decode(_polyline) if _encoded else _polyline
-    geojson = {
-                        "type": "FeatureCollection",
-                        "features": [
-                            {
-                            "type": "Feature",
-                            "geometry": {
-                                "type": "LineString",
-                                "coordinates": []
-                            },
-                            "properties": {
-                            "name":"activity"
-                            }
-                            }
-                        ]
+    geojson =   {
+                    "type": "FeatureCollection",
+                    "features": [
+                        {
+                        "type": "Feature",
+                        "geometry": {
+                            "type": "LineString",
+                            "coordinates": []
+                        },
+                        "properties": {
+                        "name":"activity"
                         }
+                        }
+                    ]
+                }
 
     for point in _polyline:
         geojson['features'][0]['geometry']['coordinates'].append([point[1],point[0]])
@@ -333,10 +331,13 @@ def generate_markdown(_summary, _svg_elev, _svg_map, _photos, _geojson, _ftempla
         leaflet_template=t.read()
         t.close()
 
-    rideImg = f"\n![Ride Image]({_summary['image']})\n" if _summary['image'] else ''
-    svg_elevation_plot = _svg_elev if _svg_elev else ''
-    leaflet = leaflet_template % {'GEOJSON':str(_geojson) }
-    svg_map_line = _svg_map if not _geojson else leaflet
+    _rideImg = f"\n![Ride Image]({_summary['image']})\n" if _summary['image'] else '> No photos taken, too busy hammering my pedals'
+
+    _elev = _svg_elev if not _geojson else ''
+    _leaflet = leaflet_template % {'GEOJSON':str(_geojson), 'SVG_ELEV': _elev }
+    _map = _svg_map if not _geojson else _leaflet
+
+    _photos = _photos if len(_photos) > 1 else '> As said, none taken, too busy riding'
     generated_markdown = post_template % {
                         'ID':_summary['id'],
                         'TITLE':_summary['name'],
@@ -344,13 +345,13 @@ def generate_markdown(_summary, _svg_elev, _svg_map, _photos, _geojson, _ftempla
                         'ISDRAFT':'false',
                         'CATS':'["MTB"]',
                         'TAGS':'["rides", "mtb", "cycling", "bike"]',
-                        'RIDEIMG': rideImg,
+                        'RIDEIMG': _rideImg,
                         'DISTANCE': _summary['distance_km'],
                         'ELE_GAIN': _summary['elevation_gain_m'],
                         'TIME_MOV':_summary['moving_time'],
                         'TIME_ELA': _summary['elapsed_time'],
-                        'SVG_MAP': svg_map_line,
-                        'SVG_ELEV': svg_elevation_plot,
+                        'MAP': _map,
+                        'ELEV': _elev,
                         'DESCR': _summary['description_parsed'],
                         'PHOTOS':_photos,
     }

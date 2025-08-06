@@ -5,9 +5,15 @@
      integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
      crossorigin="">
 </script>
-<div id="map"></div>
+<div id="plots_parent">
+  <div id="map"></div>
+  <div id="spacer"></div>
+  <div id="height_profile">%(SVG_ELEV)s</div>
+</div>
 <style>
-    #map { width: 600px; height: 600px; }
+    #map { width: 800px; height: 600px; }
+    #height_profile { width: 800px; height: 220px; }
+    #spacer {height:5px;}
 </style>
 <script>
     var map = L.map('map');
