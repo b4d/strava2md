@@ -18,21 +18,20 @@ from datetime import timedelta
 import polyline
 import numpy as np
 import os
-from config import access_token
+from config import access_token, activities_list
 
+# To be cleaned up:
 #url = f"https://www.strava.com/api/v3/activities/{activity_id}"
-
-
-activities_list = [xxxx,xxxxxx]
-
 # ls Rides/*.md | sed -E 's/.*-([0-9]+)\.md/\1/' | tr '\n' ',' | sed 's/,$/\n/' | sed 's/^/[/' | sed 's/$/]/'
 
 # Set the headers
 headers = {"Authorization": f"Bearer {access_token}"}
+# Strava root API
+STRAVA_API_ROOT = "https://www.strava.com/api/v3"
 
 # Return array of activity IDs where suffer_score (relative effort) is over 200
 def get_sufferfest_activities(access_token, suffer_threshold=200, per_page=100, max_pages=10):
-    url = "https://www.strava.com/api/v3/athlete/activities"
+    url = f"{STRAVA_API_ROOT}/athlete/activities"
 
     result_ids = []
 
@@ -62,7 +61,7 @@ def get_sufferfest_activities(access_token, suffer_threshold=200, per_page=100, 
 
 # Return array of activity IDs that are defined as MountainBikeRide
 def get_mtb_ride_ids(access_token, per_page=100, max_pages=10):
-    url = "https://www.strava.com/api/v3/athlete/activities"
+    url = f"{STRAVA_API_ROOT}/athlete/activities"
     #headers = {"Authorization": f"Bearer {access_token}"}
     mtb_ids = []
 
@@ -91,8 +90,8 @@ def get_mtb_ride_ids(access_token, per_page=100, max_pages=10):
     return mtb_ids
 
 # Plot the elevation - SVG
-def plotStream():
-    stream_url = f"https://www.strava.com/api/v3/activities/{activity_id}/streams"
+def plotStream(activity_id):
+    stream_url = f"{STRAVA_API_ROOT}/activities/{activity_id}/streams"
     stream_params = {"keys": "altitude,distance", "key_by_type": "true"}
     stream_response = requests.get(stream_url, headers=headers, params=stream_params)
 
@@ -213,8 +212,8 @@ def polyline2svg(polyline_str):
     return svg
 
 # Create MD links to all the photos on the activity
-def list_photos():
-    photo_url = f"https://www.strava.com/api/v3/activities/{activity_id}/photos?size=5000"
+def list_photos(activity_id):
+    photo_url = f"{STRAVA_API_ROOT}/activities/{activity_id}/photos?size=5000"
     response = requests.get(photo_url, headers=headers)
 
     if response.status_code == 200:
@@ -232,7 +231,7 @@ def list_photos():
 
 
 def save_activity_markdown(activity_id):
-    url = f"https://www.strava.com/api/v3/activities/{activity_id}"
+    url = f"{STRAVA_API_ROOT}/activities/{activity_id}"
     response = requests.get(url, headers=headers)
 
     if response.status_code != 200:
@@ -261,8 +260,8 @@ def save_activity_markdown(activity_id):
 
     # Prepare the map, elevation plot and photos
     svg_map_line = polyline2svg(activity_summary['line'])
-    svg_elevation_plot = plotStream()
-    photos = list_photos()
+    svg_elevation_plot = plotStream(activity_id)
+    photos = list_photos(activity_id)
 
    
     # create MD post
