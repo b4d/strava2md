@@ -22,9 +22,11 @@ tags: %(TAGS)s
 ---
 
 ## Map
+
 %(SVG_MAP)s
 
 ## Elevation Profile
+
 %(SVG_ELEV)s
 
 ---
