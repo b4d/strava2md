@@ -18,7 +18,8 @@ from datetime import timedelta
 import polyline
 import numpy as np
 import os
-from config import access_token, activities_list
+import argparse, sys
+from config import access_token
 
 # To be cleaned up:
 #url = f"https://www.strava.com/api/v3/activities/{activity_id}"
@@ -323,15 +324,29 @@ tags: ["rides", "mtb", "cycling", "bike"]
 
     print(f"✅ Created: {filename}")
 
-def main():
-    # Print a list of all MTB activities 
-    # print(get_mtb_ride_ids(access_token))
+def main(args):
+    activities_list = args.activity_ids.split(',')
 
     for activity_id in activities_list:
         save_activity_markdown(activity_id)
 
 
 
-if __name__=='__main__':
-    main()
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(
+        prog="Strava2.MD", description="Pull Strava activity information into nice hugo-compatibile .md file."
+    )
+    group = parser.add_mutually_exclusive_group(required=True)
+    group.add_argument(
+        "-i",
+        "--ids",
+        action="id",
+        metavar="activity_ids",
+        required=True,
+        type=str
+        help="Comma-separated list of activity IDs (no spaces)",
+    )
+    parser.add_argument("-v", "--verbose", action="store_true", help="Verbose output.")
 
+    args = parser.parse_args(args=None if sys.argv[1:] else ["--help"])
+    main(args)
