@@ -7,14 +7,14 @@
     - Put that file in the blog/Rides/ folder
 
 TODO:
-    - leafletJS map
+    - leafletJS map # DONE and DONE
         - elevation profile
         - photos at coordinates as popups
-
 """
 
 import requests
-from datetime import timedelta
+from datetime import timedelta, datetime
+import time
 import polyline
 import numpy as np
 import os
@@ -33,9 +33,9 @@ STRAVA_API_ROOT = "https://www.strava.com/api/v3"
 VERBOSE=False
 
 # These badbois get populated with oauth flow:
-oauthcode="" 
+oauthcode = "" 
 access_token = ""
-headers=""
+headers = ""
 
 
 # Return array of activity IDs where suffer_score (relative effort) is over 200
@@ -165,6 +165,30 @@ def plotStream(activity_id):
         distances = []
         print(f"⚠️ Elevation stream fetch failed: {stream_response.status_code} {activity_id}")
 
+
+def polyline2geojson(_polyline, _encoded=True):
+    _polyline = polyline.decode(_polyline) if _encoded else _polyline
+    geojson =   {
+                    "type": "FeatureCollection",
+                    "features": [
+                        {
+                        "type": "Feature",
+                        "geometry": {
+                            "type": "LineString",
+                            "coordinates": []
+                        },
+                        "properties": {
+                        "name":"activity"
+                        }
+                        }
+                    ]
+                }
+
+    for point in _polyline:
+        geojson['features'][0]['geometry']['coordinates'].append([point[1],point[0]])
+
+    return geojson
+
 # Route trace - SVG
 def polyline2svg(polyline_str):
 
@@ -239,15 +263,41 @@ def list_photos(activity_id):
         return f"⚠️ Error: {response.status_code} - {response.text}"
 
 
+def fetch_activites(_since, _max_pages=10, _type='Ride'):
+    url = f"{STRAVA_API_ROOT}/athlete/activities"
+    result_ids = []
+    _per_page = 20
+
+    for page in range(1, _max_pages + 1):
+        params = {
+            "page": page,
+            "per_page": _per_page,
+            "after": _since
+        }
+
+        response = requests.get(url, headers=headers, params=params)
+
+        if response.status_code != 200:
+            print(f"⚠️ Failed to fetch page {page}: {response.status_code}")
+            break
+
+        activities = response.json()
+
+        if not activities:
+            break  # No more data
+
+        for activity in activities:
+            if activity['type'] == _type:
+                result_ids.append(activity["id"])
+
+    return result_ids
+
 def fetch_activity_data(activity_id):
     url = f"{STRAVA_API_ROOT}/activities/{activity_id}"
     response = requests.get(url, headers=headers)
-    if VERBOSE:
-        print(headers)
-        print(url)
     if response.status_code != 200:
         print(f"⚠️ Failed to fetch activity {activity_id} Error: {response.status_code} - {response.text}")
-        return
+        return activity_id, -1, -1, -1
     
     data = response.json()
     activity_summary = {
@@ -265,24 +315,29 @@ def fetch_activity_data(activity_id):
         "line": data.get("map", {}).get("polyline", "")
     }
 
-    # Check if activity has more than X chars of description:
-    if len(activity_summary['description_parsed']) < 200:
-        print(f"⏭️ Skipping {activity_id} — description too short.")
-        return  # Skip to next activity
-
     # Prepare the map, elevation plot and photos
     svg_map_line = polyline2svg(activity_summary['line'])
+    geojson_line = polyline2geojson(activity_summary['line'])
     svg_elevation_plot = plotStream(activity_id)
     photos = list_photos(activity_id)
-    return activity_summary, svg_map_line, svg_elevation_plot, photos
+    return activity_summary, (svg_map_line, geojson_line), svg_elevation_plot, photos
 
-def generate_markdown(_summary, _svg_elev, _svg_map, _photos, _ftemplate='post_template.md'):
+def generate_markdown(_summary, _svg_elev, _svg_map, _photos, _geojson, _ftemplate='post_template.md', _leaftemplate='leaflet_template.html'):
     with open(_ftemplate,'r') as t:
         post_template=t.read()
         t.close()
-    rideImg = f"\n![Ride Image]({_summary['image']})\n" if _summary['image'] else ''
-    svg_elevation_plot = _svg_elev if _svg_elev else ''
-    svg_map_line = _svg_map if _svg_map else ''
+
+    with open(_leaftemplate,'r') as t:
+        leaflet_template=t.read()
+        t.close()
+
+    _rideImg = f"\n![Ride Image]({_summary['image']})\n" if _summary['image'] else '> No photos taken, too busy hammering my pedals'
+
+    _elev = _svg_elev if _geojson else ''
+    _leaflet = leaflet_template % {'GEOJSON':str(_geojson), 'SVG_ELEV': _elev }
+    _map = _svg_map if not _geojson else _leaflet
+
+    _photos = _photos if len(_photos) > 1 else '> As said, none taken, too busy riding'
     generated_markdown = post_template % {
                         'ID':_summary['id'],
                         'TITLE':_summary['name'],
@@ -290,13 +345,13 @@ def generate_markdown(_summary, _svg_elev, _svg_map, _photos, _ftemplate='post_t
                         'ISDRAFT':'false',
                         'CATS':'["MTB"]',
                         'TAGS':'["rides", "mtb", "cycling", "bike"]',
-                        'RIDEIMG': rideImg,
+                        'RIDEIMG': _rideImg,
                         'DISTANCE': _summary['distance_km'],
                         'ELE_GAIN': _summary['elevation_gain_m'],
                         'TIME_MOV':_summary['moving_time'],
                         'TIME_ELA': _summary['elapsed_time'],
-                        'SVG_MAP': svg_map_line,
-                        'SVG_ELEV': svg_elevation_plot,
+                        'MAP': _map,
+                        'ELEV': _elev,
                         'DESCR': _summary['description_parsed'],
                         'PHOTOS':_photos,
     }
@@ -315,6 +370,9 @@ class WebRequestHandler(BaseHTTPRequestHandler):
         global oauthcode
         oauthcode = re.findall("code=(.*)&", self.path)[0]
         self.wfile.write(bytes("<html><body><script>window.close();</script></body></html>", "utf-8"))
+    def log_message(self, fmt, *args):
+        print(f"✅ Got a callback on WebServer")
+        pass
 
 def strava_oauth2(_cid, _secret, _cbackurl):
     _tkn = ''
@@ -331,24 +389,81 @@ def strava_oauth2(_cid, _secret, _cbackurl):
     return _tkn
 
 def main(args):
-    activities_list = args.ids.split(',')
-    
+    if not args.ids and not args.since:
+        print(f"⚠️ Failed fetching data: either activity ID(s) or --since flag is required.")
+        exit(1)
+
+    # FIXME: Ride works, check for Walk, Hike, etc.!
+    activity_types = ['Ride','Walk','Hike']
+    type = str(args.type).title()
+    if type not in activity_types:
+        print(f"⚠️ Failed fetching data: type {args.type} is not allowed. Permitted values: {str(activity_types)}.")
+        exit(1)
+
     # authorisation workflow
-    access_token = strava_oauth2(_cid=OAUTH_CLIENT_ID, _secret=OAUTH_CLIENT_SECRET, _cbackurl=OAUTH_CBACK_URL)
+    authdelta = 21600 # 6 * 3600
+    try:
+        authstat = os.stat('.auth')
+        authdelta = authstat.st_mtime
+    except FileNotFoundError:
+        open('.auth', 'a').close()
+
+    if (time.time() - authdelta) < 21600:
+        with open('.auth','r') as f:
+            line = f.readline()
+            f.close()
+        if len(line)>0:
+            access_token = line
+            print(f"✅ Auth token retrieved sucessfully")
+        else:
+            print(f"⚠️ Failed retrieving auth token")
+    else:
+        access_token = strava_oauth2(_cid=OAUTH_CLIENT_ID, _secret=OAUTH_CLIENT_SECRET, _cbackurl=OAUTH_CBACK_URL)
+        with open('.auth','w') as f: 
+            f.write(access_token)
+            f.close()
+        print(f"✅ Auth token stored sucessfully")
+
+    global headers
     headers = {"Authorization": f"Bearer {access_token}"}
+    print(f"✅ Log in successful")
 
     # Ensure subfolder
     os.makedirs("Rides", exist_ok=True)
 
-    for activity_id in activities_list:
-        summary, svg_map, svg_elev, photos = fetch_activity_data(activity_id)
-        markdown_post = generate_markdown(_summary=summary,
-                                        _svg_elev=svg_elev,
-                                        _svg_map = svg_map,
-                                        _photos = photos)
-        filename = f"Rides/{summary['start_date']}-{summary['id']}.md"
-        save_markdown(_content=markdown_post, _fname=filename)
+    if args.since:
+        timestamp=time.mktime(datetime.strptime(args.since, "%Y-%m-%d").timetuple())
+        activities_list = fetch_activites(_since=timestamp, _type=type)
 
+    if args.ids:
+        activities_list = args.ids.split(',')
+
+    l = len(activities_list)
+    if l < 1:
+        print(f"⚠️ Failed fetching data: Require more than 1 activity to fetch any data.")
+
+    for activity_id in activities_list:
+        if args.verbose: print (f"ID: {activity_id}")
+        summary, (svg_map,geojson_map), svg_elev, photos = fetch_activity_data(activity_id)
+        # 'summary' variable will equal to activity_id (type: string) if fetch failed
+        # else it will be type of dict
+        # Hack/workaround untill we create custom exceptions that allow us to handle this
+        if isinstance(summary, str):
+            print(f"⚠️ Skipping activity ID {activity_id} due to fetching issues")
+            continue
+
+        # save activity if longer than DescrLimit parameter.
+        if len(summary['description_parsed']) >= args.descrlimit:
+            markdown_post = generate_markdown(_summary = summary,
+                                            _svg_elev = svg_elev,
+                                            _svg_map = svg_map,
+                                            _geojson = geojson_map,
+                                            _photos = photos)
+            filename = f"Rides/{summary['start_date']}-{summary['id']}.md"
+            save_markdown(_content=markdown_post, _fname=filename)
+
+        else:
+            print(f"⏭️ Skipping {activity_id} — description too short.")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
@@ -358,9 +473,30 @@ if __name__ == "__main__":
         "-i",
         "--ids",
         action="store",
-        required=True,
         type=str,
-        help="Comma-separated list of activity IDs (no spaces, example: 1,2,3,4,5)",
+        help="Comma-separated list of activity IDs (no spaces, example: 1,2,3,4,5). Overrides -s if both used at same time.",
+    )
+    parser.add_argument(
+        "-s",
+        "--since",
+        action="store",
+        type=str,
+        help="Fetch after (including) that date, if your API budget alows. (example: 2025-01-01). Gets overriden by -i if both used at same time."
+    )
+    parser.add_argument(
+        "-t",
+        "--type",
+        action="store",
+        default="Ride",
+        type=str,
+        help="Fetch type of activities (default: 'Ride'). Used with -s."
+    )
+    parser.add_argument(
+        "--descrlimit",
+        action="store",
+        default=200,
+        type=int,
+        help="Minimal length of description to create a .md file. Defaults to 200."
     )
     parser.add_argument("-v", "--verbose", action="store_true", help="Verbose output.")
 
