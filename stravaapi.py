@@ -333,7 +333,7 @@ def generate_markdown(_summary, _svg_elev, _svg_map, _photos, _geojson, _ftempla
 
     _rideImg = f"\n![Ride Image]({_summary['image']})\n" if _summary['image'] else '> No photos taken, too busy hammering my pedals'
 
-    _elev = _svg_elev if not _geojson else ''
+    _elev = _svg_elev if _geojson else ''
     _leaflet = leaflet_template % {'GEOJSON':str(_geojson), 'SVG_ELEV': _elev }
     _map = _svg_map if not _geojson else _leaflet
 
