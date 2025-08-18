@@ -6,8 +6,6 @@ categories: %(CATS)s
 tags: %(TAGS)s
 ---
 
-> Data parsed automatically from [Strava](https://www.strava.com)
-
 %(RIDEIMG)s
 
 ## Info
@@ -18,6 +16,8 @@ tags: %(TAGS)s
 - **Moving Time:** %(TIME_MOV)s
 - **Elapsed Time:** %(TIME_ELA)s
 - [%(TITLE)s on Strava](https://www.strava.com/activities/%(ID)s)
+
+> Data parsed [automatically](https://github.com/b4d/strava2md) from [Strava](https://www.strava.com)
 
 ---
 
