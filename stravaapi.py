@@ -151,7 +151,7 @@ def plotStream(activity_id):
             x_ticks.append(f'<text x="{x:.1f}" y="{height + 12}" font-size="10" fill="#666" text-anchor="middle">{km} km</text>')
 
 
-        elevation_svg = f"""<svg viewBox="0 0 {width} {height + 20}" xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height + 20}">
+        elevation_svg = f"""<svg viewBox="0 0 {width} {height + 20}" xmlns="http://www.w3.org/2000/svg" >
   {' '.join(legend_lines)}   <!-- Y-axis legend lines and labels -->
   {' '.join(x_ticks)}        <!-- X-axis ticks and labels -->
   <polyline points="{' '.join(points)}" fill="none" stroke="#fd9720" stroke-width="2" /></svg>"""
