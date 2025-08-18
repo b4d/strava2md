@@ -6,12 +6,12 @@
      crossorigin="">
 </script>
 <div id="plots_parent">
-  <div id="map"></div>
+  <div id="map_div"></div>
   <div id="spacer"></div>
   <div id="height_profile">%(SVG_ELEV)s</div>
 </div>
 <style>
-    #map { width: 656px; height: 656px; max-width: 90vw; margin: 5px auto;}
+    #map_div { width: 656px; height: 656px; max-width: 90vw; margin: 5px auto;}
     #height_profile { width: 656px; height: 220px; max-width: 90vw; margin: 5px auto;}
     #spacer {height:5px;}
     /* Resize the Leaflet attribution text */
@@ -33,7 +33,7 @@
     }
 </style>
 <script>
-    var map = L.map('map');
+    var map = L.map('map_div');
     var OpenStreetMap_Mapnik = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         maxZoom: 19,
         attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
