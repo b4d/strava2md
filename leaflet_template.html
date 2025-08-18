@@ -11,9 +11,26 @@
   <div id="height_profile">%(SVG_ELEV)s</div>
 </div>
 <style>
-    #map { width: 800px; height: 600px; max-width: 90vw; margin: 5px auto;}
-    #height_profile { width: 800px; height: 220px; max-width: 90vw; margin: 5px auto;}
+    #map { width: 656px; height: 656px; max-width: 90vw; margin: 5px auto;}
+    #height_profile { width: 656px; height: 220px; max-width: 90vw; margin: 5px auto;}
     #spacer {height:5px;}
+    /* Resize the Leaflet attribution text */
+    .leaflet-control-attribution {
+        font-size: 10px;  /* You can change this to any size you prefer */
+    }
+    .leaflet-control-scale-line {
+        font-size: 10px;  /* Smaller font */
+    }
+    .leaflet-control-layers {
+        font-size: 10px;        /* Change size of entire layer control */
+    }
+    .leaflet-control-layers label {
+        font-size: 10px;        /* Size of individual map name labels */
+    }
+    .leaflet-control-layers-selector {
+        width: 14px;            /* Optional: size of checkbox/radio */
+        height: 14px;
+    }
 </style>
 <script>
     var map = L.map('map');
@@ -42,17 +59,14 @@
     };
     map.setView([46.4, 14.5], 9);
     L.control.layers(baseMaps).addTo(map);
-    L.control.scale().addTo(map);
+    L.control.scale({ metric: true, imperial: false }).addTo(map);
     OpenStreetMap_Mapnik.addTo(map);
-
     var myStyle = {
-        "color": "#ff7800",
-        "weight": 5,
-        "opacity": 0.65
+    "color": "#ff7800",
+    "weight": 5,
+    "opacity": 0.65
     };
-
     var geojsonFeature = %(GEOJSON)s
-
     var myLayer = L.geoJSON(geojsonFeature, {style: myStyle}).addTo(map);
     map.fitBounds(myLayer.getBounds());
 </script>
