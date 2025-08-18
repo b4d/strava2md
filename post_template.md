@@ -17,7 +17,6 @@ tags: %(TAGS)s
 - **Elapsed Time:** %(TIME_ELA)s
 - [%(TITLE)s on Strava](https://www.strava.com/activities/%(ID)s)
 
-> Data parsed [automatically](https://github.com/b4d/strava2md) from [Strava](https://www.strava.com)
 
 ---
 
@@ -36,3 +35,7 @@ tags: %(TAGS)s
 ## Photos
 
 %(PHOTOS)s
+
+---
+
+> Data parsed [automatically](https://github.com/b4d/strava2md) from [Strava](https://www.strava.com)
