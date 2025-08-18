@@ -6,8 +6,6 @@ categories: %(CATS)s
 tags: %(TAGS)s
 ---
 
-> Data parsed automatically from [Strava](https://www.strava.com)
-
 %(RIDEIMG)s
 
 ## Info
@@ -36,3 +34,7 @@ tags: %(TAGS)s
 ## Photos
 
 %(PHOTOS)s
+
+---
+
+> Data parsed [automagically](https://github.com/b4d/strava2md) from [Strava](https://www.strava.com)
