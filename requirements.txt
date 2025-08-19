@@ -1,3 +1,5 @@
 numpy
 polyline
 requests
+selenium
+Pillow
