@@ -21,7 +21,9 @@ tags: %(TAGS)s
 
 ## Map
 
+{{< rawhtml >}}
 %(MAP)s
+{{< /rawhtml >}}
 
 ---
 
