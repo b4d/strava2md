@@ -6,3 +6,4 @@ config.py
 !post_template.md
 ./tmp/*
 Rides/*
+venv/
