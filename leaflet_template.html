@@ -57,61 +57,58 @@
     "OpenTopoMap": OpenTopoMap,
     "Letalska": SloLetalska,
     };
+
     map.setView([46.4, 14.5], 9);
     L.control.layers(baseMaps).addTo(map);
     L.control.scale({ metric: true, imperial: false }).addTo(map);
     OpenStreetMap_Mapnik.addTo(map);
+
     var myStyle = {
     "color": "#ff7800",
     "weight": 5,
     "opacity": 0.65
     };
+
     var geojsonFeature = %(GEOJSON)s
-    var myLayer = L.geoJSON(geojsonFeature, {style: myStyle}).addTo(map);
-    map.fitBounds(myLayer.getBounds());
+    var myGeoJSONLayer = L.geoJSON(geojsonFeature, {style: myStyle}).addTo(map);
+    map.fitBounds(myGeoJSONLayer.getBounds());
 
-    var geojsonFeature = %(GEOJSON)s;
-  var myStyle = { color: "#ff7800", weight: 5, opacity: 0.65 };
-
-  var myLayer = L.geoJSON(geojsonFeature, { style: myStyle }).addTo(map);
-  map.fitBounds(myLayer.getBounds());
-
-  // Collect all latlngs from the rendered layers (handles LineString/MultiLineString/FeatureCollection)
-  function flattenLatLngs(latlngs) {
-    // Leaflet returns arrays nested to indicate parts; flatten deeply
-    return (Array.isArray(latlngs) ? latlngs.flat(Infinity) : [latlngs]).filter(Boolean);
-  }
-
-  var allLatLngs = [];
-  myLayer.eachLayer(function (layer) {
-    if (typeof layer.getLatLngs === "function") {
-      allLatLngs = allLatLngs.concat(flattenLatLngs(layer.getLatLngs()));
+    // Collect all latlngs from the rendered layers (handles LineString/MultiLineString/FeatureCollection)
+    function flattenLatLngs(latlngs) {
+      // Leaflet returns arrays nested to indicate parts; flatten deeply
+      return (Array.isArray(latlngs) ? latlngs.flat(Infinity) : [latlngs]).filter(Boolean);
     }
-  });
 
-  if (allLatLngs.length >= 2) {
-    var start = allLatLngs[0];
-    var end = allLatLngs[allLatLngs.length - 1];
+    var allLatLngs = [];
+    myLayer.eachLayer(function (layer) {
+      if (typeof layer.getLatLngs === "function") {
+        allLatLngs = allLatLngs.concat(flattenLatLngs(layer.getLatLngs()));
+      }
+    });
 
-    // Start: 10px diameter, 2px stroke, no fill
-    L.circleMarker(start, {
-      radius: 5,              // 10px diameter
-      color: "#1a8e1a",       // stroke color
-      weight: 2,
-      fill: true,
-      fillOpacity: 1
-    }).addTo(map).bindPopup("Start");
+    if (allLatLngs.length >= 2) {
+      var start = allLatLngs[0];
+      var end = allLatLngs[allLatLngs.length - 1];
 
-    // End: 10px diameter, 2px stroke, filled
-    L.circleMarker(end, {
-      radius: 5,
-      color: "#cc0000",
-      weight: 2,
-      fill: true,
-      fillOpacity: 1
-    }).addTo(map).bindPopup("Finish");
-  } else {
-    console.warn("No line coordinates found in geojsonFeature.");
-  }
+      // Start: 10px diameter, 2px stroke, no fill
+      L.circleMarker(start, {
+        radius: 5,              // 10px diameter
+        color: "#1a8e1a",       // stroke color
+        weight: 2,
+        fill: true,
+        fillOpacity: 1
+      }).addTo(map).bindPopup("Start");
+
+      // End: 10px diameter, 2px stroke, filled
+      L.circleMarker(end, {
+        radius: 5,
+        color: "#cc0000",
+        weight: 2,
+        fill: true,
+        fillOpacity: 1
+      }).addTo(map).bindPopup("Finish");
+    } else {
+      console.warn("No line coordinates found in geojsonFeature.");
+    }
 
 </script>
