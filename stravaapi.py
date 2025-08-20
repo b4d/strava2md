@@ -98,71 +98,16 @@ def get_mtb_ride_ids(access_token, per_page=100, max_pages=10):
 
     return mtb_ids
 
-# Plot the elevation - SVG
-def plotStream(activity_id):
+def getStream(activity_id,type):
     stream_url = f"{STRAVA_API_ROOT}/activities/{activity_id}/streams"
-    stream_params = {"keys": "altitude,distance", "key_by_type": "true"}
+    stream_params = {"keys": type, "key_by_type": "true"}
     stream_response = requests.get(stream_url, headers=headers, params=stream_params)
 
     if stream_response.status_code == 200:
         stream_data = stream_response.json()
-        altitudes = stream_data.get("altitude", {}).get("data", [])
-        distances = stream_data.get("distance", {}).get("data", [])
-
-        width = 800
-        height = 200
-
-        min_alt = min(altitudes)
-        max_alt = max(altitudes)
-        min_dist = min(distances)
-        max_dist = max(distances)
-
-        def scale_x(d): return (d - min_dist) / (max_dist - min_dist) * width if max_dist > min_dist else 0
-        def scale_y(a): return height - ((a - min_alt) / (max_alt - min_alt) * height) if max_alt > min_alt else height / 2
-
-        # Sample every 10th point (adjust step to your needs)
-        step = 10
-        points = [f"{scale_x(distances[i]):.1f},{scale_y(altitudes[i]):.1f}" for i in range(0, len(altitudes), step)]
-
-       # Altitude ticks
-        ticks = 5
-        alt_step = (max_alt - min_alt) / (ticks - 1) if max_alt > min_alt else 0
-        legend_lines = []
-
-        for i in range(ticks):
-            alt = min_alt + i * alt_step
-            y = scale_y(alt)
-            legend_lines.append(f'<line x1="0" y1="{y:.1f}" x2="{width}" y2="{y:.1f}" stroke="#ccc" stroke-dasharray="2,2" />')
-            legend_lines.append(f'<text x="5" y="{y - 2:.1f}" font-size="10" fill="#666">{int(alt)} m</text>')
-
-        # KM ticks
-        tick_km_interval = 5
-        max_dist_km = max_dist / 1000
-        tick_count = int(max_dist_km // tick_km_interval) + 1
-
-        x_ticks = []
-
-        # remove 1, to start at 0 km tick
-        for i in range(1,tick_count):
-            km = i * tick_km_interval
-            d = km * 1000  # convert back to meters
-            x = scale_x(d)
-            x_ticks.append(f'<line x1="{x:.1f}" y1="{height}" x2="{x:.1f}" y2="{height - 5}" stroke="#999" />')
-            x_ticks.append(f'<text x="{x:.1f}" y="{height + 12}" font-size="10" fill="#666" text-anchor="middle">{km} km</text>')
-
-
-        elevation_svg = f"""<svg viewBox="0 0 {width} {height + 20}" xmlns="http://www.w3.org/2000/svg" >
-  {' '.join(legend_lines)}   <!-- Y-axis legend lines and labels -->
-  {' '.join(x_ticks)}        <!-- X-axis ticks and labels -->
-  <polyline points="{' '.join(points)}" fill="none" stroke="#fd9720" stroke-width="2" /></svg>"""
-
-
-        return(elevation_svg)
-
     else:
-        altitudes = []
-        distances = []
         print(f"⚠️ Elevation stream fetch failed: {stream_response.status_code} {activity_id}")
+    return stream_data
 
 # Create MD links to all the photos on the activity
 def list_photos(activity_id):
@@ -232,16 +177,18 @@ def fetch_activity_data(activity_id):
         "location_country": data.get("location_country"),
         "description_parsed": (data.get("description") or "").replace('\r\n', '\n').strip(),
         "image": (((data.get("photos") or {}).get("primary") or {}).get("urls") or {}).get("600"),
-        "line": data.get("map", {}).get("polyline", "")
     }
 
-    # Prepare the map, elevation plot and photos
-    poly_line = np.array(polyline.decode(activity_summary['line'])).tolist()
-    svg_elevation_plot = plotStream(activity_id)
+    # Manually prepare the polyline, elevation plot and photos
+    height_stream = getStream(activity_id, 'altitude,distance')
+    latlng_stream = getStream(activity_id, 'latlng,distance')
+    poly_line = list()
+    for idx in range(0, len(height_stream['altitude']['data'])):
+        poly_line.append([latlng_stream['latlng']['data'][idx][0],latlng_stream['latlng']['data'][idx][1],height_stream['altitude']['data'][idx]])
     photos = list_photos(activity_id)
-    return activity_summary, poly_line, svg_elevation_plot, photos
+    return activity_summary, poly_line, photos
 
-def generate_markdown(_summary, _svg_elev, _photos, _polyline, _ftemplate='post_template.md', _leaftemplate='leaflet_template.html'):
+def generate_markdown(_summary, _photos, _polyline, _ftemplate='post_template.md', _leaftemplate='leaflet_template.html'):
     with open(_ftemplate,'r') as t:
         post_template=t.read()
         t.close()
@@ -251,7 +198,7 @@ def generate_markdown(_summary, _svg_elev, _photos, _polyline, _ftemplate='post_
         t.close()
 
     _rideImg = f"\n![Ride Image]({_summary['image']})\n" if _summary['image'] else '> No photos taken, too busy hammering my pedals'
-    _leaflet = leaflet_template % {'POLYLINE':str(_polyline), 'SVG_ELEV': _svg_elev }
+    _leaflet = leaflet_template % {'POLYLINE':str(_polyline) }
 
     _photos = _photos if len(_photos) > 1 else '> As said, none taken, too busy riding'
     generated_markdown = post_template % {
@@ -359,7 +306,7 @@ def main(args):
 
     for activity_id in activities_list:
         if args.verbose: print (f"ID: {activity_id}")
-        summary, poly_line, svg_elev, photos = fetch_activity_data(activity_id)
+        summary, poly_line, photos = fetch_activity_data(activity_id)
         # 'summary' variable will equal to activity_id (type: string) if fetch failed
         # else it will be type of dict
         # Hack/workaround untill we create custom exceptions that allow us to handle this
@@ -370,7 +317,6 @@ def main(args):
         # save activity if longer than DescrLimit parameter.
         if len(summary['description_parsed']) >= args.descrlimit:
             markdown_post = generate_markdown(_summary = summary,
-                                            _svg_elev = svg_elev,
                                             _polyline = poly_line,
                                             _photos = photos)
             filename = f"Rides/{summary['start_date']}-{summary['id']}.md"

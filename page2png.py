@@ -15,7 +15,7 @@ driver.get(path)
 time.sleep(2)
 
 driver.save_screenshot(os.path.abspath(os.path.curdir)+"/tmp/shot.png")
-for e in ['map_div','height_profile']:
+for e in ['map_div']:
   el = driver.find_element(By.ID, e)
   location=el.location
   size=el.size
