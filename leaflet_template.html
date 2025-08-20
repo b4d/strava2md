@@ -3,8 +3,8 @@
      crossorigin=""/>
  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
      integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
-     crossorigin="">
-</script>
+     crossorigin="" ></script>
+<script src="https://unpkg.com/leaflet-polylinedecorator@1.6.0/dist/leaflet.polylineDecorator.js"></script>
 <div id="plots_parent">
   <div id="map_div"></div>
   <div id="spacer"></div>
@@ -69,26 +69,13 @@
     "opacity": 0.65
     };
 
-    var geojsonFeature = %(GEOJSON)s
-    var myGeoJSONLayer = L.geoJSON(geojsonFeature, {style: myStyle}).addTo(map);
-    map.fitBounds(myGeoJSONLayer.getBounds());
+    var myPolyLine = %(POLYLINE)s
+    var myPolylineLayer = L.polyline(myPolyLine, myStyle).addTo(map)
+    map.fitBounds(myPolylineLayer.getBounds());
 
-    // Collect all latlngs from the rendered layers (handles LineString/MultiLineString/FeatureCollection)
-    function flattenLatLngs(latlngs) {
-      // Leaflet returns arrays nested to indicate parts; flatten deeply
-      return (Array.isArray(latlngs) ? latlngs.flat(Infinity) : [latlngs]).filter(Boolean);
-    }
-
-    var allLatLngs = [];
-    myLayer.eachLayer(function (layer) {
-      if (typeof layer.getLatLngs === "function") {
-        allLatLngs = allLatLngs.concat(flattenLatLngs(layer.getLatLngs()));
-      }
-    });
-
-    if (allLatLngs.length >= 2) {
-      var start = allLatLngs[0];
-      var end = allLatLngs[allLatLngs.length - 1];
+    if (myPolyLine.length >= 2) {
+        var start = myPolyLine[0];
+        var end = myPolyLine[myPolyLine.length - 1];
 
       // Start: 10px diameter, 2px stroke, no fill
       L.circleMarker(start, {
@@ -110,5 +97,19 @@
     } else {
       console.warn("No line coordinates found in geojsonFeature.");
     }
+
+    var decorator = L.polylineDecorator(myPolylineLayer, {
+        patterns: [
+            {
+                offset: 25,            // first arrow offset in pixels
+                repeat: 100,           // spacing between arrows in pixels
+                symbol: L.Symbol.arrowHead({
+                    pixelSize: 10,     // arrow size
+                    polygon: false,
+                    pathOptions: {stroke: true, color: 'gray', weight: 4}
+                })
+            }
+        ]
+    }).addTo(map);
 
 </script>

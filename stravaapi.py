@@ -159,90 +159,10 @@ def plotStream(activity_id):
 
         return(elevation_svg)
 
-
     else:
         altitudes = []
         distances = []
         print(f"⚠️ Elevation stream fetch failed: {stream_response.status_code} {activity_id}")
-
-
-def polyline2geojson(_polyline, _encoded=True):
-    _polyline = polyline.decode(_polyline) if _encoded else _polyline
-    geojson =   {
-                    "type": "FeatureCollection",
-                    "features": [
-                        {
-                        "type": "Feature",
-                        "geometry": {
-                            "type": "LineString",
-                            "coordinates": []
-                        },
-                        "properties": {
-                        "name":"activity"
-                        }
-                        }
-                    ]
-                }
-
-    for point in _polyline:
-        geojson['features'][0]['geometry']['coordinates'].append([point[1],point[0]])
-
-    return geojson
-
-# Route trace - SVG
-def polyline2svg(polyline_str):
-
-    coordinates = polyline.decode(polyline_str) if polyline_str else []
-
-    if not coordinates:
-        return " "
-
-    lats, lngs = zip(*coordinates)
-    min_lat, max_lat = min(lats), max(lats)
-    min_lng, max_lng = min(lngs), max(lngs)
-
-    lat_range = max_lat - min_lat or 1
-    lng_range = max_lng - min_lng or 1
-
-    # Determine width and height based on route shape
-    base_size = 656
-    if lng_range >= lat_range:
-        width = base_size
-        height = int(base_size * (lat_range / lng_range))
-    else:
-        height = base_size
-        width = int(base_size * (lng_range / lat_range))
-
-    # Add padding
-    pad = 10
-    width += pad * 2
-    height += pad * 2
-
-    # Scaling function
-    def scale(lat, lng):
-        x = ((lng - min_lng) / lng_range) * (width - 2 * pad) + pad
-        y = height - (((lat - min_lat) / lat_range) * (height - 2 * pad) + pad)
-        return x, y
-
-    # Get all points
-    points = [scale(lat, lng) for lat, lng in coordinates]
-    path_d = f"M {' '.join(f'{x:.1f},{y:.1f}' for x, y in points)}"
-
-    # Start and end circles
-    start_x, start_y = points[0]
-    end_x, end_y = points[-1]
-
-    start_circle = f'<circle cx="{start_x:.1f}" cy="{start_y:.1f}" r="5" stroke="#fd9720" stroke-width="2" fill="none" />'
-    end_circle = f'<circle cx="{end_x:.1f}" cy="{end_y:.1f}" r="5" stroke="#fd9720" stroke-width="2" fill="#fd9720" />'
-
-    # SVG output
-    svg = f"""<svg viewBox="0 0 {width} {height}" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid meet">
-  <path d="{path_d}" fill="none" stroke="#fd9720" stroke-width="2" />
-  {start_circle}
-  {end_circle}
-    </svg>"""
-
-    return svg
 
 # Create MD links to all the photos on the activity
 def list_photos(activity_id):
@@ -316,13 +236,12 @@ def fetch_activity_data(activity_id):
     }
 
     # Prepare the map, elevation plot and photos
-    svg_map_line = polyline2svg(activity_summary['line'])
-    geojson_line = polyline2geojson(activity_summary['line'])
+    poly_line = np.array(polyline.decode(activity_summary['line'])).tolist()
     svg_elevation_plot = plotStream(activity_id)
     photos = list_photos(activity_id)
-    return activity_summary, (svg_map_line, geojson_line), svg_elevation_plot, photos
+    return activity_summary, poly_line, svg_elevation_plot, photos
 
-def generate_markdown(_summary, _svg_elev, _svg_map, _photos, _geojson, _ftemplate='post_template.md', _leaftemplate='leaflet_template.html'):
+def generate_markdown(_summary, _svg_elev, _photos, _polyline, _ftemplate='post_template.md', _leaftemplate='leaflet_template.html'):
     with open(_ftemplate,'r') as t:
         post_template=t.read()
         t.close()
@@ -332,10 +251,7 @@ def generate_markdown(_summary, _svg_elev, _svg_map, _photos, _geojson, _ftempla
         t.close()
 
     _rideImg = f"\n![Ride Image]({_summary['image']})\n" if _summary['image'] else '> No photos taken, too busy hammering my pedals'
-
-    _elev = _svg_elev if _geojson else ''
-    _leaflet = leaflet_template % {'GEOJSON':str(_geojson), 'SVG_ELEV': _elev }
-    _map = _svg_map if not _geojson else _leaflet
+    _leaflet = leaflet_template % {'POLYLINE':str(_polyline), 'SVG_ELEV': _svg_elev }
 
     _photos = _photos if len(_photos) > 1 else '> As said, none taken, too busy riding'
     generated_markdown = post_template % {
@@ -350,8 +266,7 @@ def generate_markdown(_summary, _svg_elev, _svg_map, _photos, _geojson, _ftempla
                         'ELE_GAIN': _summary['elevation_gain_m'],
                         'TIME_MOV':_summary['moving_time'],
                         'TIME_ELA': _summary['elapsed_time'],
-                        'MAP': _map,
-                        'ELEV': _elev,
+                        'MAP': _leaflet,
                         'DESCR': _summary['description_parsed'],
                         'PHOTOS':_photos,
     }
@@ -444,7 +359,7 @@ def main(args):
 
     for activity_id in activities_list:
         if args.verbose: print (f"ID: {activity_id}")
-        summary, (svg_map,geojson_map), svg_elev, photos = fetch_activity_data(activity_id)
+        summary, poly_line, svg_elev, photos = fetch_activity_data(activity_id)
         # 'summary' variable will equal to activity_id (type: string) if fetch failed
         # else it will be type of dict
         # Hack/workaround untill we create custom exceptions that allow us to handle this
@@ -456,8 +371,7 @@ def main(args):
         if len(summary['description_parsed']) >= args.descrlimit:
             markdown_post = generate_markdown(_summary = summary,
                                             _svg_elev = svg_elev,
-                                            _svg_map = svg_map,
-                                            _geojson = geojson_map,
+                                            _polyline = poly_line,
                                             _photos = photos)
             filename = f"Rides/{summary['start_date']}-{summary['id']}.md"
             save_markdown(_content=markdown_post, _fname=filename)
