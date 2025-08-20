@@ -3,17 +3,17 @@
      crossorigin=""/>
  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
      integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
-     crossorigin="">
-</script>
+     crossorigin="" ></script>
+<script src="https://unpkg.com/leaflet-polylinedecorator@1.6.0/dist/leaflet.polylineDecorator.js"></script>
+
+<script src=" https://cdn.jsdelivr.net/npm/leaflet.heightgraph@1.4.0/dist/L.Control.Heightgraph.min.js "></script>
+<link href=" https://cdn.jsdelivr.net/npm/leaflet.heightgraph@1.4.0/dist/L.Control.Heightgraph.min.css " rel="stylesheet">
+
 <div id="plots_parent">
   <div id="map_div"></div>
-  <div id="spacer"></div>
-  <div id="height_profile">%(SVG_ELEV)s</div>
 </div>
 <style>
     #map_div { width: 656px; height: 656px; max-width: 90vw; max-height: 45vh; margin: 5px auto;}
-    #height_profile { width: 656px; max-width: 90vw; max-height: 45vh; margin: 5px auto;}
-    #spacer {height:5px;}
     /* Resize the Leaflet attribution text */
     .leaflet-control-attribution {
         font-size: 10px;  /* You can change this to any size you prefer */
@@ -57,16 +57,128 @@
     "OpenTopoMap": OpenTopoMap,
     "Letalska": SloLetalska,
     };
+
     map.setView([46.4, 14.5], 9);
     L.control.layers(baseMaps).addTo(map);
     L.control.scale({ metric: true, imperial: false }).addTo(map);
     OpenStreetMap_Mapnik.addTo(map);
+
     var myStyle = {
     "color": "#ff7800",
     "weight": 5,
     "opacity": 0.65
     };
-    var geojsonFeature = %(GEOJSON)s
-    var myLayer = L.geoJSON(geojsonFeature, {style: myStyle}).addTo(map);
-    map.fitBounds(myLayer.getBounds());
+
+    var myPolyLine = %(POLYLINE)s
+    var myPolyLineLayer = L.polyline(myPolyLine, myStyle).addTo(map)
+
+
+    if (myPolyLine.length >= 2) {
+        var start = myPolyLine[0];
+        var end = myPolyLine[myPolyLine.length - 1];
+
+      // Start: 10px diameter, 2px stroke, no fill
+      startMarker = L.circleMarker(start, {
+        radius: 5,              // 10px diameter
+        color: "#1a8e1a",       // stroke color
+        weight: 2,
+        fill: true,
+        fillOpacity: 1
+      })
+
+      // End: 10px diameter, 2px stroke, filled
+      endMarker = L.circleMarker(end, {
+        radius: 5,
+        color: "#cc0000",
+        weight: 2,
+        fill: true,
+        fillOpacity: 1
+      })
+      startMarker.addTo(map).bindPopup("Start");
+      endMarker.addTo(map).bindPopup("Finish");
+    } else {
+      console.warn("No line coordinates found in PolylineFeature.");
+    }
+
+    var decorator = L.polylineDecorator(myPolyLineLayer, {
+        patterns: [
+            {
+                offset: 25,            // first arrow offset in pixels
+                repeat: 100,           // spacing between arrows in pixels
+                symbol: L.Symbol.arrowHead({
+                    pixelSize: 10,     // arrow size
+                    polygon: false,
+                    pathOptions: {stroke: true, color: 'gray', weight: 4}
+                })
+            }
+        ]
+    }).addTo(map);
+
+    function polylineToGeoJSON(coords) {
+      // latlng, height
+      // polyline compared to geojson has flipped coords
+      var out = [];
+      for (var i = 0; i < coords.length; i++) {
+        out.push([coords[i][1], coords[i][0], coords[i][2]]);
+      }
+      return out;
+    }
+    var geojson3d = polylineToGeoJSON(myPolyLine)
+    const myGeoJson = {
+                      "type": "FeatureCollection",
+                      "features": [
+                        {
+                          "type": "Feature",
+                          "geometry": {
+                              "type": "LineString",
+                              "coordinates": geojson3d,
+                          },
+                          "properties": {
+                            "attributeType": "0"
+                          }
+                        }
+                      ],
+                      "properties": {
+                        "name":"activity",
+                        "summary": "Steepness"
+                      }
+                    } 
+  
+  // This elevation supports plotting different gradients differently,
+  // but we would then have to split the featurecollection.features by gradient.
+  // If we don't define colormapping, the graph always gets weird auto-chosen colors
+  // for now, we set gradient 0 everywhere and change the translation 
+  // to something else that makes kinda sense :P 
+  // https://github.com/GIScience/Leaflet.Heightgraph/blob/master/src/L.Control.Heightgraph.js#L565
+
+  var colorMappings = {
+    Steepness: {
+      '0': {
+          text: 'as best as ever!',
+          color: '#ff7800'
+      }
+    }
+  }
+
+  var translations = {type: 'Fun level:'}
+  let options = {
+    width: 450,
+    height: 150,
+    mappings: colorMappings,
+    translation: translations,
+    highlightStyle: {
+        color: "black"
+    },
+    graphStyle: {
+        color: "#ff7800",
+        opacity: 0.8,
+        'fill-opacity': 0.5,
+        'stroke-width': '2px'
+    },
+  }
+  let hg = L.control.heightgraph(options);
+  hg.addTo(map);
+  hg.addData([myGeoJson]);
+  var myGeoJsonLayer = L.geoJson(myGeoJson,{style: myStyle})//.addTo(map);
+  map.fitBounds(myPolyLineLayer.getBounds());
 </script>

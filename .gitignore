@@ -4,5 +4,6 @@ config.py
 *.pyc
 !README.md
 !post_template.md
-./tmp/*
+tmp/*
 Rides/*
+venv/
