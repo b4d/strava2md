@@ -182,4 +182,8 @@
   hg.addData([myGeoJson]);
   var myGeoJsonLayer = L.geoJson(myGeoJson,{style: myStyle})//.addTo(map);
   map.fitBounds(myPolyLineLayer.getBounds());
+  document.getElementById('heightgraph.blockdistance').remove()
+  document.getElementById('heightgraph.type').remove() 
+  document.getElementById('selectionText').remove()
+  document.getElementsByClassName('legend-hover')[0].remove() 
 </script>
