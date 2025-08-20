@@ -19,7 +19,7 @@ import polyline
 import numpy as np
 import os
 import argparse, sys
-from config import OAUTH_CLIENT_ID, OAUTH_CLIENT_SECRET, OAUTH_CBACK_URL
+from config import OAUTH_CLIENT_ID, OAUTH_CLIENT_SECRET, OAUTH_CBACK_URL, HOME_COORDINATES
 import math
 
 # OAuth workflow
@@ -38,6 +38,8 @@ oauthcode = ""
 access_token = ""
 headers = ""
 
+
+# Used to make home locations private
 def haversine_m(lat1, lon1, lat2, lon2):
     R = 6371000.0
     dlat = math.radians(lat2 - lat1)
@@ -47,25 +49,27 @@ def haversine_m(lat1, lon1, lat2, lon2):
          math.sin(dlon/2)**2)
     return 2 * R * math.atan2(math.sqrt(a), math.sqrt(1 - a))
 
-def trim_by_radius(poly_line, center, radius_m=200):
+def trim_by_radius_multi(poly_line, centers, radius_m=200):
     """
     poly_line: list of [lat, lon, alt]
-    center: (lat, lon) of home
-    Removes points from the START while they are within `radius_m` of `center`,
-    and from the END while they are within `radius_m`. Keeps the middle untouched.
+    centers: list of (lat, lon) tuples (e.g., HOME_COORDINATES)
+    Removes start points until outside radius of ALL centers,
+    and removes end points until outside radius of ALL centers.
     """
     if not poly_line:
         return poly_line
 
-    cx, cy = center
+    def near_any(lat, lon):
+        return any(haversine_m(lat, lon, cx, cy) <= radius_m for cx, cy in centers)
+
+    # Trim from start
     start_idx = 0
-    while (start_idx < len(poly_line) and
-           haversine_m(cx, cy, poly_line[start_idx][0], poly_line[start_idx][1]) <= radius_m):
+    while start_idx < len(poly_line) and near_any(poly_line[start_idx][0], poly_line[start_idx][1]):
         start_idx += 1
 
+    # Trim from end
     end_idx = len(poly_line) - 1
-    while (end_idx >= start_idx and
-           haversine_m(cx, cy, poly_line[end_idx][0], poly_line[end_idx][1]) <= radius_m):
+    while end_idx >= start_idx and near_any(poly_line[end_idx][0], poly_line[end_idx][1]):
         end_idx -= 1
 
     return poly_line[start_idx:end_idx+1]
@@ -226,11 +230,11 @@ def fetch_activity_data(activity_id):
         alt = alts[i]
         poly_line.append([lat, lon, alt])
 
+    # Define multiple "home" coordinates
 
 
-    # Radius-based trim around home (recommended)
-    home = (46.047103, 14.504507)   # your home
-    poly_line = trim_by_radius(poly_line, center=home, radius_m=200)
+    # Apply trimming
+    poly_line = trim_by_radius_multi(poly_line, centers=HOME_COORDINATES, radius_m=200)
 
     
     photos = list_photos(activity_id)
