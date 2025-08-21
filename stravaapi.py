@@ -7,9 +7,7 @@
     - Put that file in the blog/Rides/ folder
 
 TODO:
-    - leafletJS map # DONE and DONE
-        - elevation profile
-        - photos at coordinates as popups
+    - photos at coordinates as popups
 """
 
 import requests
@@ -26,9 +24,6 @@ import math
 import webbrowser, threading, re
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
-# To be cleaned up:
-#url = f"https://www.strava.com/api/v3/activities/{activity_id}"
-# ls Rides/*.md | sed -E 's/.*-([0-9]+)\.md/\1/' | tr '\n' ',' | sed 's/,$/\n/' | sed 's/^/[/' | sed 's/$/]/'
 # Strava root API
 STRAVA_API_ROOT = "https://www.strava.com/api/v3"
 VERBOSE=False
@@ -107,7 +102,7 @@ def get_sufferfest_activities(access_token, suffer_threshold=200, per_page=100, 
 # Return array of activity IDs that are defined as MountainBikeRide
 def get_mtb_ride_ids(access_token, per_page=100, max_pages=10):
     url = f"{STRAVA_API_ROOT}/athlete/activities"
-    #headers = {"Authorization": f"Bearer {access_token}"}
+
     mtb_ids = []
 
     for page in range(1, max_pages + 1):
@@ -230,13 +225,9 @@ def fetch_activity_data(activity_id):
         alt = alts[i]
         poly_line.append([lat, lon, alt])
 
-    # Define multiple "home" coordinates
-
-
-    # Apply trimming
+    # Apply trimming / privacy zones
     poly_line = trim_by_radius_multi(poly_line, centers=HOME_COORDINATES, radius_m=200)
 
-    
     photos = list_photos(activity_id)
     return activity_summary, poly_line, photos
 
