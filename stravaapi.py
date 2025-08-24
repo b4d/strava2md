@@ -105,8 +105,8 @@ def _align_polyline(activity_id):
         kernel = np.ones(k) / k
         alt_on_g = np.convolve(alt_on_g, kernel, mode='same')
 
-    # Build [lat, lon, alt]
-    poly_line = [[lat, lon, float(alt)] for (lat, lon), alt in zip(latlng, alt_on_g)]
+    # Build [lat, lon, alt] with rounded altitude
+    poly_line = [[lat, lon, int(round(alt))] for (lat, lon), alt in zip(latlng, alt_on_g)]
 
     # Apply your privacy trimming
     poly_line = trim_by_radius_multi(poly_line, centers=HOME_COORDINATES, radius_m=HOME_OFFSET)
