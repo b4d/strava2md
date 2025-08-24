@@ -17,7 +17,7 @@ import polyline
 import numpy as np
 import os
 import argparse, sys
-from config import OAUTH_CLIENT_ID, OAUTH_CLIENT_SECRET, OAUTH_CBACK_URL, HOME_COORDINATES
+from config import OAUTH_CLIENT_ID, OAUTH_CLIENT_SECRET, OAUTH_CBACK_URL, HOME_COORDINATES, HOME_OFFSET
 import math
 
 # OAuth workflow
@@ -44,7 +44,7 @@ def haversine_m(lat1, lon1, lat2, lon2):
          math.sin(dlon/2)**2)
     return 2 * R * math.atan2(math.sqrt(a), math.sqrt(1 - a))
 
-def trim_by_radius_multi(poly_line, centers, radius_m=200):
+def trim_by_radius_multi(poly_line, centers, radius_m=HOME_OFFSET):
     """
     poly_line: list of [lat, lon, alt]
     centers: list of (lat, lon) tuples (e.g., HOME_COORDINATES)

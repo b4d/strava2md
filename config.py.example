@@ -6,7 +6,11 @@ OAUTH_CLIENT_SECRET = "..."
 # authorization callback domain
 OAUTH_CBACK_URL = "http://localhost:8088/exchange_token"
 
+# Privacy controls
+# Array of coordinates around which to hide activity start/end tracks
 HOME_COORDINATES = [
     (46.000000, 14.000000),   # Home
     (45.000000, 15.000000),   # Vacation home
 ]
+# Distance in meters around HOME_COORDINATES to hide tracks
+HOME_OFFSET = 1000
