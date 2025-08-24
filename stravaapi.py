@@ -7,9 +7,7 @@
     - Put that file in the blog/Rides/ folder
 
 TODO:
-    - leafletJS map # DONE and DONE
-        - elevation profile
-        - photos at coordinates as popups
+    - photos at coordinates as popups
 """
 
 import requests
@@ -19,16 +17,13 @@ import polyline
 import numpy as np
 import os
 import argparse, sys
-from config import OAUTH_CLIENT_ID, OAUTH_CLIENT_SECRET, OAUTH_CBACK_URL, HOME_COORDINATES
+from config import OAUTH_CLIENT_ID, OAUTH_CLIENT_SECRET, OAUTH_CBACK_URL, HOME_COORDINATES, HOME_OFFSET
 import math
 
 # OAuth workflow
 import webbrowser, threading, re
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
-# To be cleaned up:
-#url = f"https://www.strava.com/api/v3/activities/{activity_id}"
-# ls Rides/*.md | sed -E 's/.*-([0-9]+)\.md/\1/' | tr '\n' ',' | sed 's/,$/\n/' | sed 's/^/[/' | sed 's/$/]/'
 # Strava root API
 STRAVA_API_ROOT = "https://www.strava.com/api/v3"
 VERBOSE=False
@@ -49,7 +44,7 @@ def haversine_m(lat1, lon1, lat2, lon2):
          math.sin(dlon/2)**2)
     return 2 * R * math.atan2(math.sqrt(a), math.sqrt(1 - a))
 
-def trim_by_radius_multi(poly_line, centers, radius_m=200):
+def trim_by_radius_multi(poly_line, centers, radius_m=HOME_OFFSET):
     """
     poly_line: list of [lat, lon, alt]
     centers: list of (lat, lon) tuples (e.g., HOME_COORDINATES)
@@ -73,6 +68,51 @@ def trim_by_radius_multi(poly_line, centers, radius_m=200):
         end_idx -= 1
 
     return poly_line[start_idx:end_idx+1]
+
+
+def _align_polyline(activity_id):
+    # Pull distance-aligned streams
+    h = getStream(activity_id, 'altitude,distance')  # altitude vs its distance axis
+    g = getStream(activity_id, 'latlng,distance')    # latlng    vs its distance axis
+
+    alts = (h.get('altitude', {}) or {}).get('data', []) or []
+    d_h  = (h.get('distance', {}) or {}).get('data', []) or []
+
+    latlng = (g.get('latlng', {}) or {}).get('data', []) or []
+    d_g    = (g.get('distance', {}) or {}).get('data', []) or []
+
+    # Guardrails
+    if len(latlng) < 2 or len(alts) < 2 or len(d_g) < 2 or len(d_h) < 2:
+        return []  # not enough data to plot
+
+    # Both distance arrays should be increasing; drop any non‑monotonic glitches
+    def _monotonic(x, y):
+        out_x, out_y = [x[0]], [y[0]]
+        for i in range(1, len(x)):
+            if x[i] > out_x[-1]:
+                out_x.append(x[i]); out_y.append(y[i])
+        return np.array(out_x), np.array(out_y)
+
+    d_h, alts = _monotonic(np.array(d_h, dtype=float), np.array(alts, dtype=float))
+    d_g       = np.array(d_g, dtype=float)
+
+    # Resample altitude to latlng distances
+    alt_on_g = np.interp(d_g, d_h, alts, left=alts[0], right=alts[-1])
+
+    # Light smoothing to kill micro spikes (boxcar)
+    if len(alt_on_g) >= 5:
+        k = 5
+        kernel = np.ones(k) / k
+        alt_on_g = np.convolve(alt_on_g, kernel, mode='same')
+
+    # Build [lat, lon, alt] with rounded altitude
+    poly_line = [[lat, lon, int(round(alt))] for (lat, lon), alt in zip(latlng, alt_on_g)]
+
+    # Apply your privacy trimming
+    poly_line = trim_by_radius_multi(poly_line, centers=HOME_COORDINATES, radius_m=HOME_OFFSET)
+
+    # Ensure at least 2 points after trimming
+    return poly_line if len(poly_line) >= 2 else []
 
 # Return array of activity IDs where suffer_score (relative effort) is over 200
 def get_sufferfest_activities(access_token, suffer_threshold=200, per_page=100, max_pages=10):
@@ -107,7 +147,7 @@ def get_sufferfest_activities(access_token, suffer_threshold=200, per_page=100, 
 # Return array of activity IDs that are defined as MountainBikeRide
 def get_mtb_ride_ids(access_token, per_page=100, max_pages=10):
     url = f"{STRAVA_API_ROOT}/athlete/activities"
-    #headers = {"Authorization": f"Bearer {access_token}"}
+
     mtb_ids = []
 
     for page in range(1, max_pages + 1):
@@ -134,16 +174,19 @@ def get_mtb_ride_ids(access_token, per_page=100, max_pages=10):
 
     return mtb_ids
 
-def getStream(activity_id,type):
+def getStream(activity_id, keys, series_type='distance', resolution='high'):
     stream_url = f"{STRAVA_API_ROOT}/activities/{activity_id}/streams"
-    stream_params = {"keys": type, "key_by_type": "true"}
-    stream_response = requests.get(stream_url, headers=headers, params=stream_params)
-
-    if stream_response.status_code == 200:
-        stream_data = stream_response.json()
-    else:
-        print(f"⚠️ Elevation stream fetch failed: {stream_response.status_code} {activity_id}")
-    return stream_data
+    stream_params = {
+        "keys": keys,                 # e.g., "latlng,distance" or "altitude,distance"
+        "key_by_type": "true",
+        "series_type": series_type,   # enforce distance-based alignment
+        "resolution": resolution      # high/medium/low
+    }
+    r = requests.get(stream_url, headers=headers, params=stream_params)
+    if r.status_code != 200:
+        print(f"⚠️ Stream fetch failed: {r.status_code} {activity_id}")
+        return {}
+    return r.json()
 
 # Create MD links to all the photos on the activity
 def list_photos(activity_id):
@@ -215,28 +258,8 @@ def fetch_activity_data(activity_id):
         "image": (((data.get("photos") or {}).get("primary") or {}).get("urls") or {}).get("600"),
     }
 
-    # Manually prepare the polyline, elevation plot and photos
-    height_stream = getStream(activity_id, 'altitude,distance')
-    latlng_stream = getStream(activity_id, 'latlng,distance')
+    poly_line = _align_polyline(activity_id)
 
-    # Be defensive about stream lengths
-    alts   = height_stream.get('altitude', {}).get('data', []) or []
-    latlng = latlng_stream.get('latlng',   {}).get('data', []) or []
-
-    L = min(len(alts), len(latlng))
-    poly_line = []
-    for i in range(L):
-        lat, lon = latlng[i]
-        alt = alts[i]
-        poly_line.append([lat, lon, alt])
-
-    # Define multiple "home" coordinates
-
-
-    # Apply trimming
-    poly_line = trim_by_radius_multi(poly_line, centers=HOME_COORDINATES, radius_m=200)
-
-    
     photos = list_photos(activity_id)
     return activity_summary, poly_line, photos
 
