@@ -109,7 +109,7 @@ def _align_polyline(activity_id):
     poly_line = [[lat, lon, float(alt)] for (lat, lon), alt in zip(latlng, alt_on_g)]
 
     # Apply your privacy trimming
-    poly_line = trim_by_radius_multi(poly_line, centers=HOME_COORDINATES, radius_m=200)
+    poly_line = trim_by_radius_multi(poly_line, centers=HOME_COORDINATES, radius_m=HOME_OFFSET)
 
     # Ensure at least 2 points after trimming
     return poly_line if len(poly_line) >= 2 else []
