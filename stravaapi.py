@@ -196,11 +196,17 @@ def list_photos(activity_id):
     if response.status_code == 200:
         photos = response.json()
         output = []
+        print(photos);exit()
+        if not os.path.exists(f'./Rides/{activity_id}/'):
+            os.makedirs(f'./Rides/{activity_id}/')
 
         for i, photo in enumerate(photos, 1):
             url = photo.get("urls", {}).get("5000")
             if url:
-                output.append(f"![Ride Image {i}]({url})")
+                img_data = requests.get(url).content
+                with open(f'./Rides/{activity_id}/photo_{i}.jpg', 'wb') as handler:
+                    handler.write(img_data)
+                output.append(f"![Ride Image {i}](./{activity_id}/photo_{i}.jpg)")
 
         return "\n".join(output)
     else:
