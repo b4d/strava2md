@@ -196,7 +196,6 @@ def list_photos(activity_id):
     if response.status_code == 200:
         photos = response.json()
         output = []
-        print(photos);exit()
         if not os.path.exists(f'./Rides/{activity_id}/'):
             os.makedirs(f'./Rides/{activity_id}/')
 
@@ -278,7 +277,15 @@ def generate_markdown(_summary, _photos, _polyline, _ftemplate='post_template.md
         leaflet_template=t.read()
         t.close()
 
-    _rideImg = f"\n![Ride Image]({_summary['image']})\n" if _summary['image'] else '> No photos taken, too busy hammering my pedals'
+    if not os.path.exists(f'./Rides/{_summary['id']}/'):
+        os.makedirs(f'./Rides/{_summary['id']}/')
+
+    _rideImg = '> No photos taken, too busy hammering my pedals'
+    if _summary['image']:
+        img_data = requests.get(_summary['image']).content
+        with open(f'./Rides/{_summary['id']}/photo_0.jpg', 'wb') as handler:
+            handler.write(img_data)
+        _rideImg = f"\n![Ride Image](./{_summary['id']}/photo_0.jpg)"
     _leaflet = leaflet_template % {'POLYLINE':str(_polyline) }
 
     _photos = _photos if len(_photos) > 1 else '> As said, none taken, too busy riding'
