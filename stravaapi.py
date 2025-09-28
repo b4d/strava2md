@@ -21,7 +21,7 @@ from config import OAUTH_CLIENT_ID, OAUTH_CLIENT_SECRET, OAUTH_CBACK_URL
 from config import HOME_COORDINATES, HOME_OFFSET, FONT_PATH, FONT_PATH_BOLD
 
 import math
-from PIL import Image, ImageFont, ImageDraw
+from PIL import Image, ImageFont, ImageDraw, ImageOps
 import io
 
 # OAuth workflow
@@ -73,7 +73,7 @@ def trim_by_radius_multi(poly_line, centers, radius_m=HOME_OFFSET):
 
     return poly_line[start_idx:end_idx+1]
 
-
+# Used to align polyline and altitude/distance
 def _align_polyline(activity_id):
     # Pull distance-aligned streams
     h = getStream(activity_id, 'altitude,distance')  # altitude vs its distance axis
@@ -193,23 +193,23 @@ def getStream(activity_id, keys, series_type='distance', resolution='high'):
     return r.json()
 
 # Create MD links to all the photos on the activity
-def list_photos(activity_id):
+def list_photos(activity_id, start_date):
     photo_url = f"{STRAVA_API_ROOT}/activities/{activity_id}/photos?size=5000"
     response = requests.get(photo_url, headers=headers)
 
     if response.status_code == 200:
         photos = response.json()
         output = []
-        if not os.path.exists(f'./Rides/{activity_id}/'):
-            os.makedirs(f'./Rides/{activity_id}/')
+        if not os.path.exists(f"./Rides/{start_date}-{activity_id}/"):
+            os.makedirs(f"./Rides/{start_date}-{activity_id}/")
 
         for i, photo in enumerate(photos, 1):
             url = photo.get("urls", {}).get("5000")
             if url:
                 img_data = requests.get(url).content
-                with open(f'./Rides/{activity_id}/photo_{i}.jpg', 'wb') as handler:
+                with open(f"./Rides/{start_date}-{activity_id}/photo_{i}.jpg", 'wb') as handler:
                     handler.write(img_data)
-                output.append(f"![Ride Image {i}](./{activity_id}/photo_{i}.jpg)")
+                output.append(f"![Ride Image {i}](./photo_{i}.jpg)")
 
         return "\n".join(output)
     else:
@@ -269,9 +269,10 @@ def fetch_activity_data(activity_id):
 
     poly_line = _align_polyline(activity_id)
 
-    photos = list_photos(activity_id)
+    photos = list_photos(activity_id, activity_summary['start_date'])
     return activity_summary, poly_line, photos
 
+# Wrap title into one or two lines based on available width on the image overlay.
 def wrap_title(draw, text, font, max_width):
     """Wrap title into one or two lines based on available width."""
     if draw.textlength(text, font=font) <= max_width:
@@ -290,6 +291,7 @@ def wrap_title(draw, text, font, max_width):
             break
     return [line1, line2] if line2 else [line1]
 
+# Draw polyline on overlay image (clipping-safe)
 def draw_polyline_on_image(
     draw,
     poly_line,
@@ -297,14 +299,16 @@ def draw_polyline_on_image(
     margin=40,
     color=(253,151,32,255),
     width=4,
-    scale=0.4,                 # fraction of drawable area (0<scale<=1)
-    anchor="topmiddle",         # "topright" | "topleft" | "bottomright" | "bottomleft"
-    supersample=3,             # AA factor
-    outline_color=(0,0,0,180), # soft outline for contrast
-    outline_extra=2            # extra px around the main width for outline
+    scale=0.4,                  # fraction of drawable area (0<scale<=1)
+    anchor="topmiddle",         # "topright"|"topleft"|"topmiddle"|"bottomright"|"bottomleft"|"bottommiddle"|"center"
+    supersample=3,              # AA factor
+    outline_color=(0,0,0,180),  # soft outline for contrast
+    outline_extra=2,            # extra px around the main width for outline
+    domain_pad=0.02             # expand bounds (~2%) to avoid edge mapping
 ):
     """Render a route with correct aspect by projecting lat/lon to Web-Mercator
-    and fitting it into a smaller box anchored inside the image.
+    and fitting it into a smaller box anchored inside the image, with padding to
+    avoid stroke clipping at the edges.
     """
     if not poly_line:
         return
@@ -312,8 +316,7 @@ def draw_polyline_on_image(
     # --- Project lat/lon to Web-Mercator (meters) ---
     R = 6378137.0
     def mercator(lat, lon):
-        # clamp latitude for numerical stability
-        lat = max(min(lat, 85.05112878), -85.05112878)
+        lat = max(min(lat, 85.05112878), -85.05112878)  # clamp for stability
         x = math.radians(lon) * R
         y = math.log(math.tan(math.pi/4.0 + math.radians(lat)/2.0)) * R
         return x, y
@@ -321,10 +324,19 @@ def draw_polyline_on_image(
     mx, my = zip(*(mercator(p[0], p[1]) for p in poly_line))
     min_x, max_x = min(mx), max(mx)
     min_y, max_y = min(my), max(my)
+
     span_x = max(max_x - min_x, 1e-6)
     span_y = max(max_y - min_y, 1e-6)
 
-    # --- Target plot box on final image ---
+    # --- 1) Tiny domain padding so first/last points aren't at the literal edge
+    min_x -= span_x * domain_pad
+    max_x += span_x * domain_pad
+    min_y -= span_y * domain_pad
+    max_y += span_y * domain_pad
+    span_x = max(max_x - min_x, 1e-6)
+    span_y = max(max_y - min_y, 1e-6)
+
+    # --- 2) Target plot box on final image
     plot_w = int((w - 2*margin) * scale)
     plot_h = int((h - 2*margin) * scale)
 
@@ -333,28 +345,38 @@ def draw_polyline_on_image(
     elif anchor == "topleft":
         base_x, base_y = margin, margin
     elif anchor == "topmiddle":
-        base_x = (w - plot_w) / 2
-        base_y = margin
+        base_x, base_y = (w - plot_w) / 2, margin
     elif anchor == "bottomright":
         base_x, base_y = w - margin - plot_w, h - margin - plot_h
     elif anchor == "bottommiddle":
-        base_x = (w - plot_w) / 2
-        base_y = h - margin - plot_h
+        base_x, base_y = (w - plot_w) / 2, h - margin - plot_h
+    elif anchor == "center":
+        base_x, base_y = (w - plot_w) / 2, (h - plot_h) / 2
     else:  # "bottomleft"
         base_x, base_y = margin, h - margin - plot_h
 
-    # --- Supersampled overlay for crisp anti-aliased result ---
+    # --- 3) Supersampled overlay for crisp anti-aliased result ---
     ss = max(1, int(supersample))
     big_w, big_h = plot_w * ss, plot_h * ss
     overlay = Image.new("RGBA", (big_w, big_h), (0,0,0,0))
     odraw = ImageDraw.Draw(overlay)
 
-    # Preserve aspect ratio with a single uniform scale; center within box
-    sx = (big_w - 1) / span_x
-    sy = (big_h - 1) / span_y
+    # Stroke-safe inner padding inside the overlay (half stroke + 2px)
+    stroke_pad = max(width / 2.0, 2.0) * ss
+    avail_w = max(1, big_w - 2*stroke_pad)
+    avail_h = max(1, big_h - 2*stroke_pad)
+
+    # Preserve aspect with a single uniform scale; center within padded area
+    sx = avail_w / span_x
+    sy = avail_h / span_y
     s  = min(sx, sy)
-    off_x = (big_w - span_x * s) / 2.0
-    off_y = (big_h - span_y * s) / 2.0
+
+    # Tiny safety shrink to avoid AA rounding touching borders
+    SAFETY = 0.998
+    s *= SAFETY
+
+    off_x = stroke_pad + (avail_w - span_x * s) / 2.0
+    off_y = stroke_pad + (avail_h - span_y * s) / 2.0
 
     def to_px(xm, ym):
         x = off_x + (xm - min_x) * s
@@ -367,18 +389,14 @@ def draw_polyline_on_image(
     if outline_extra > 0:
         odraw.line(path, fill=outline_color, width=width*ss + 2*outline_extra, joint="curve")
 
-    odraw.line(path, fill=color, width=max(1, width*ss), joint="curve")
+    odraw.line(path, fill=color, width=max(1, int(width*ss)), joint="curve")
 
     # Downsample with LANCZOS and paste into the base image
     overlay_small = overlay.resize((plot_w, plot_h), Image.LANCZOS)
 
-    # Try to obtain the underlying image from the draw object (works in modern Pillow)
-    base_img = getattr(draw, "_image", None)
+    base_img = getattr(draw, "_image", None) or getattr(draw, "im", None)
     if base_img is None:
-        # Fallback for some Pillow versions
-        base_img = getattr(draw, "im", None)
-        if base_img is None:
-            raise RuntimeError("Could not access base image from draw; pass the PIL Image to paste the overlay.")
+        raise RuntimeError("Could not access base image from draw; pass the PIL Image to paste the overlay.")
 
     base_img.paste(overlay_small, (int(base_x), int(base_y)), overlay_small)
 
@@ -388,6 +406,11 @@ def overlayify_image(_image, _title, _date, _distance, _elevation, _moving, poly
 
     # Work in RGBA so we can blend an icon with transparency
     img = Image.open(io.BytesIO(_image)).convert("RGBA")
+
+    # --- Convert to grayscale before anything else ---
+    gray = ImageOps.grayscale(img)       # mode "L"
+    img  = gray.convert("RGBA")          # back to RGBA so we can draw, paste icons etc.
+
     w, h = img.size
     draw = ImageDraw.Draw(img)
 
@@ -492,20 +515,21 @@ def generate_markdown(_summary, _photos, _polyline, _ftemplate='post_template.md
         leaflet_template=t.read()
         t.close()
 
-    if not os.path.exists(f'./Rides/{_summary["id"]}/'):
-        os.makedirs(f'./Rides/{_summary["id"]}/')
+    if not os.path.exists(f"./Rides/{_summary['start_date']}-{_summary['id']}/"):
+        os.makedirs(f"./Rides/{_summary['start_date']}-{_summary['id']}/")
 
     _rideImg = '> No photos taken, too busy hammering my pedals'
     if _summary['image']:
         img_data = requests.get(_summary['image']).content
-        with open(f'./Rides/{_summary["id"]}/photo_0.jpg', 'wb') as handler:
+        with open(f"./Rides/{_summary['start_date']}-{_summary['id']}/photo_0.jpg", "wb") as handler:
             handler.write(img_data)
 
+        # generate ovarlay image
         img_overlayed = overlayify_image(img_data, _summary['name'], _summary['start_date'], _summary['distance_km'], _summary['elevation_gain_m'], _summary['moving_time'],poly_line=_polyline,)
-        with open(f'./Rides/{_summary["id"]}/photo_0o.jpg', 'wb') as handler:
+        with open(f"./Rides/{_summary['start_date']}-{_summary['id']}/photo_0o.jpg", "wb") as handler:
             handler.write(img_overlayed)
 
-        _rideImg = f"\n![Ride Image](./{_summary['id']}/photo_0o.jpg)"
+        _rideImg = f"\n![Ride Image](./photo_0o.jpg)"
 
     _leaflet = leaflet_template % {'POLYLINE':str(_polyline) }
 
