@@ -400,6 +400,10 @@ def draw_polyline_on_image(
 
     base_img.paste(overlay_small, (int(base_x), int(base_y)), overlay_small)
 
+def hhmmss_to_hhmm(s: str) -> str:
+    h, m, _ = (int(x) for x in s.split(":"))
+    return f"{h}h {m}m"
+
 def overlayify_image(_image, _title, _date, _distance, _elevation, _moving, poly_line=None):
 
     margin = 40  # global margin from edge
@@ -490,6 +494,7 @@ def overlayify_image(_image, _title, _date, _distance, _elevation, _moving, poly
 
     # Time (value right, label centered above it)
     val_time = f"{_moving}"
+    val_time = hhmmss_to_hhmm(val_time) 
     val_w = draw.textlength(val_time, font=fontData)
     label = "Time"
     label_w = draw.textlength(label, font=fontSubject)
