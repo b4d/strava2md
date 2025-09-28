@@ -17,8 +17,12 @@ import polyline
 import numpy as np
 import os
 import argparse, sys
-from config import OAUTH_CLIENT_ID, OAUTH_CLIENT_SECRET, OAUTH_CBACK_URL, HOME_COORDINATES, HOME_OFFSET
+from config import OAUTH_CLIENT_ID, OAUTH_CLIENT_SECRET, OAUTH_CBACK_URL 
+from config import HOME_COORDINATES, HOME_OFFSET, FONT_PATH, FONT_PATH_BOLD
+
 import math
+from PIL import Image, ImageFont, ImageDraw
+import io
 
 # OAuth workflow
 import webbrowser, threading, re
@@ -268,6 +272,217 @@ def fetch_activity_data(activity_id):
     photos = list_photos(activity_id)
     return activity_summary, poly_line, photos
 
+def wrap_title(draw, text, font, max_width):
+    """Wrap title into one or two lines based on available width."""
+    if draw.textlength(text, font=font) <= max_width:
+        return [text]  # fits in one line
+
+    # Try splitting by spaces
+    words = text.split()
+    line1, line2 = "", ""
+    for word in words:
+        test_line = (line1 + " " + word).strip()
+        if draw.textlength(test_line, font=font) <= max_width:
+            line1 = test_line
+        else:
+            # Move rest of words to line2
+            line2 = " ".join(words[words.index(word):])
+            break
+    return [line1, line2] if line2 else [line1]
+
+def draw_polyline_on_image(
+    draw,
+    poly_line,
+    w, h,
+    margin=40,
+    color=(253,151,32,255),
+    width=4,
+    scale=0.4,                 # fraction of drawable area (0<scale<=1)
+    anchor="topmiddle",         # "topright" | "topleft" | "bottomright" | "bottomleft"
+    supersample=3,             # AA factor
+    outline_color=(0,0,0,180), # soft outline for contrast
+    outline_extra=2            # extra px around the main width for outline
+):
+    """Render a route with correct aspect by projecting lat/lon to Web-Mercator
+    and fitting it into a smaller box anchored inside the image.
+    """
+    if not poly_line:
+        return
+
+    # --- Project lat/lon to Web-Mercator (meters) ---
+    R = 6378137.0
+    def mercator(lat, lon):
+        # clamp latitude for numerical stability
+        lat = max(min(lat, 85.05112878), -85.05112878)
+        x = math.radians(lon) * R
+        y = math.log(math.tan(math.pi/4.0 + math.radians(lat)/2.0)) * R
+        return x, y
+
+    mx, my = zip(*(mercator(p[0], p[1]) for p in poly_line))
+    min_x, max_x = min(mx), max(mx)
+    min_y, max_y = min(my), max(my)
+    span_x = max(max_x - min_x, 1e-6)
+    span_y = max(max_y - min_y, 1e-6)
+
+    # --- Target plot box on final image ---
+    plot_w = int((w - 2*margin) * scale)
+    plot_h = int((h - 2*margin) * scale)
+
+    if anchor == "topright":
+        base_x, base_y = w - margin - plot_w, margin
+    elif anchor == "topleft":
+        base_x, base_y = margin, margin
+    elif anchor == "topmiddle":
+        base_x = (w - plot_w) / 2
+        base_y = margin
+    elif anchor == "bottomright":
+        base_x, base_y = w - margin - plot_w, h - margin - plot_h
+    elif anchor == "bottommiddle":
+        base_x = (w - plot_w) / 2
+        base_y = h - margin - plot_h
+    else:  # "bottomleft"
+        base_x, base_y = margin, h - margin - plot_h
+
+    # --- Supersampled overlay for crisp anti-aliased result ---
+    ss = max(1, int(supersample))
+    big_w, big_h = plot_w * ss, plot_h * ss
+    overlay = Image.new("RGBA", (big_w, big_h), (0,0,0,0))
+    odraw = ImageDraw.Draw(overlay)
+
+    # Preserve aspect ratio with a single uniform scale; center within box
+    sx = (big_w - 1) / span_x
+    sy = (big_h - 1) / span_y
+    s  = min(sx, sy)
+    off_x = (big_w - span_x * s) / 2.0
+    off_y = (big_h - span_y * s) / 2.0
+
+    def to_px(xm, ym):
+        x = off_x + (xm - min_x) * s
+        y = off_y + (max_y - ym) * s  # flip vertical
+        return (x, y)
+
+    path = [to_px(x, y) for x, y in zip(mx, my)]
+
+    # Optional soft outline for visibility on busy photos
+    if outline_extra > 0:
+        odraw.line(path, fill=outline_color, width=width*ss + 2*outline_extra, joint="curve")
+
+    odraw.line(path, fill=color, width=max(1, width*ss), joint="curve")
+
+    # Downsample with LANCZOS and paste into the base image
+    overlay_small = overlay.resize((plot_w, plot_h), Image.LANCZOS)
+
+    # Try to obtain the underlying image from the draw object (works in modern Pillow)
+    base_img = getattr(draw, "_image", None)
+    if base_img is None:
+        # Fallback for some Pillow versions
+        base_img = getattr(draw, "im", None)
+        if base_img is None:
+            raise RuntimeError("Could not access base image from draw; pass the PIL Image to paste the overlay.")
+
+    base_img.paste(overlay_small, (int(base_x), int(base_y)), overlay_small)
+
+def overlayify_image(_image, _title, _date, _distance, _elevation, _moving, poly_line=None):
+
+    margin = 40  # global margin from edge
+
+    # Work in RGBA so we can blend an icon with transparency
+    img = Image.open(io.BytesIO(_image)).convert("RGBA")
+    w, h = img.size
+    draw = ImageDraw.Draw(img)
+
+    # Font sizes
+    maxsize = min(w, h) / 12
+    fontTitle   = ImageFont.truetype(FONT_PATH_BOLD, int(2/3.0*maxsize - 1))
+    fontSubject = ImageFont.truetype(FONT_PATH, int(maxsize/2 - 5))
+    fontData    = ImageFont.truetype(FONT_PATH_BOLD, int(2/3.0*maxsize - 1))
+
+    # Darken the image
+    overlay = Image.new("RGBA", img.size, (0, 0, 0, 100))  # alpha = 120 (~50% dark)
+    img = img.convert("RGBA")
+    img = Image.alpha_composite(img, overlay)
+    draw = ImageDraw.Draw(img)
+
+
+    # Text (use 4-tuple RGBA color)
+    # draw.text((20, 20), "GH://b4d/strava2md", (255, 255, 255, 255), font=fontSubject)
+    # draw.text((w - 150, 20), _date, (255, 255, 255, 255), font=fontSubject)
+
+    # --- Bottom stats reference ---
+    stats_y_top = int(7/8.0 * h - 15)   # where you draw "Distance"
+
+    # --- Title wrapping ---
+    max_width = w - margin*2
+    wrapped = wrap_title(draw, _title, fontTitle, max_width)
+
+    # Height of title block (all lines)
+    line_height = int(maxsize * 1.2)
+    title_block_height = len(wrapped) * line_height
+
+    # Place title so its bottom is 20px above stats
+    y_start = stats_y_top - title_block_height - 20
+
+    # --- Icon above title ---
+    icon = Image.open("assets/icon-mtb.png").convert("RGBA")
+    icon = icon.resize((int(2/3.0*maxsize - 1), int(2/3.0*maxsize - 1)))
+    icon_x = margin
+    icon_y = y_start - icon.height - 10
+    img.paste(icon, (icon_x, icon_y), icon)
+
+    # --- Draw wrapped title ---
+    for i, line in enumerate(wrapped):
+        draw.text((margin, y_start + i*line_height), line,
+                  (255,255,255,255), font=fontTitle)
+
+    # --- Polyline on image (only if provided & non-empty) ---
+    if poly_line:
+        draw_polyline_on_image(draw, poly_line, w, h, margin=40, scale=0.6)
+
+    # --- Bottom stats ---
+    bottom_y_label = int(7/8.0 * h - 15)
+    bottom_y_value = int(7/8.0 * h + 15)
+
+    inner_w = w - 2*margin
+    col_w = inner_w / 3.0
+
+    x_left   = margin                   # left column anchor
+    x_center = margin + inner_w/2       # middle column anchor
+    x_right  = w - margin               # right column anchor
+
+    # Distance (value left, label centered above it)
+    val_dist = f"{_distance} km"
+    val_w = draw.textlength(val_dist, font=fontData)
+    label = "Distance"
+    label_w = draw.textlength(label, font=fontSubject)
+    draw.text((x_left, bottom_y_value), val_dist, (255,255,255,255), font=fontData)
+    draw.text((x_left + val_w/2 - label_w/2, bottom_y_label), label, (255,255,255,255), font=fontSubject)
+
+    # Elev Gain (value centered, label centered above)
+    val_elev = f"{_elevation}".rstrip("0").rstrip(".") + " m"
+    val_w = draw.textlength(val_elev, font=fontData)
+    label = "Elev Gain"
+    label_w = draw.textlength(label, font=fontSubject)
+    draw.text((x_center - val_w/2, bottom_y_value), val_elev, (255,255,255,255), font=fontData)
+    draw.text((x_center - label_w/2, bottom_y_label), label, (255,255,255,255), font=fontSubject)
+
+    # Time (value right, label centered above it)
+    val_time = f"{_moving}"
+    val_w = draw.textlength(val_time, font=fontData)
+    label = "Time"
+    label_w = draw.textlength(label, font=fontSubject)
+    draw.text((x_right - val_w, bottom_y_value), val_time, (255,255,255,255), font=fontData)
+    draw.text((x_right - val_w/2 - label_w/2, bottom_y_label), label, (255,255,255,255), font=fontSubject)
+
+
+    # Flatten to RGB for JPEG (preserves icon edges by compositing with a solid bg)
+    out_rgb = Image.new("RGB", img.size, (0, 0, 0))  # background color if any transparency remains
+    out_rgb.paste(img, mask=img.split()[-1])
+
+    _out = io.BytesIO()
+    out_rgb.save(_out, format='JPEG', quality=95,subsampling=0)
+    return _out.getvalue()
+
+
 def generate_markdown(_summary, _photos, _polyline, _ftemplate='post_template.md', _leaftemplate='leaflet_template.html'):
     with open(_ftemplate,'r') as t:
         post_template=t.read()
@@ -277,15 +492,21 @@ def generate_markdown(_summary, _photos, _polyline, _ftemplate='post_template.md
         leaflet_template=t.read()
         t.close()
 
-    if not os.path.exists(f'./Rides/{_summary['id']}/'):
-        os.makedirs(f'./Rides/{_summary['id']}/')
+    if not os.path.exists(f'./Rides/{_summary["id"]}/'):
+        os.makedirs(f'./Rides/{_summary["id"]}/')
 
     _rideImg = '> No photos taken, too busy hammering my pedals'
     if _summary['image']:
         img_data = requests.get(_summary['image']).content
-        with open(f'./Rides/{_summary['id']}/photo_0.jpg', 'wb') as handler:
+        with open(f'./Rides/{_summary["id"]}/photo_0.jpg', 'wb') as handler:
             handler.write(img_data)
-        _rideImg = f"\n![Ride Image](./{_summary['id']}/photo_0.jpg)"
+
+        img_overlayed = overlayify_image(img_data, _summary['name'], _summary['start_date'], _summary['distance_km'], _summary['elevation_gain_m'], _summary['moving_time'],poly_line=_polyline,)
+        with open(f'./Rides/{_summary["id"]}/photo_0o.jpg', 'wb') as handler:
+            handler.write(img_overlayed)
+
+        _rideImg = f"\n![Ride Image](./{_summary['id']}/photo_0o.jpg)"
+
     _leaflet = leaflet_template % {'POLYLINE':str(_polyline) }
 
     _photos = _photos if len(_photos) > 1 else '> As said, none taken, too busy riding'

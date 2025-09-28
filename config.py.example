@@ -14,3 +14,8 @@ HOME_COORDINATES = [
 ]
 # Distance in meters around HOME_COORDINATES to hide tracks
 HOME_OFFSET = 1000
+
+
+# find / -iname "Roboto*Regular.ttf" 2>/dev/null | grep -i truetype | grep -iv condensed | head -n1
+FONT_PATH = "/usr/share/fonts/truetype/roboto/unhinted/RobotoTTF/Roboto-Regular.ttf"
+FONT_PATH_BOLD = "/home/b4d/tmp/github/strava2md/assets/fonts/Roboto-Bold.ttf"
