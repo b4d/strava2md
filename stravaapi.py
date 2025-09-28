@@ -435,6 +435,10 @@ def overlayify_image(_image, _title, _date, _distance, _elevation, _moving, poly
     # draw.text((20, 20), "GH://b4d/strava2md", (255, 255, 255, 255), font=fontSubject)
     # draw.text((w - 150, 20), _date, (255, 255, 255, 255), font=fontSubject)
 
+    # --- Polyline on image (only if provided & non-empty) ---
+    if poly_line:
+        draw_polyline_on_image(draw, poly_line, w, h, width=5, anchor="topmiddle", margin=40, scale=0.7, outline_extra=0)
+
     # --- Bottom stats reference ---
     stats_y_top = int(7/8.0 * h - 15)   # where you draw "Distance"
 
@@ -461,9 +465,6 @@ def overlayify_image(_image, _title, _date, _distance, _elevation, _moving, poly
         draw.text((margin, y_start + i*line_height), line,
                   (255,255,255,255), font=fontTitle)
 
-    # --- Polyline on image (only if provided & non-empty) ---
-    if poly_line:
-        draw_polyline_on_image(draw, poly_line, w, h, margin=40, scale=0.6)
 
     # --- Bottom stats ---
     bottom_y_label = int(7/8.0 * h - 15)
