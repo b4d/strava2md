@@ -398,7 +398,7 @@ def overlayify_image(_image, _title, _date, _distance, _elevation, _moving, poly
     fontData    = ImageFont.truetype(FONT_PATH_BOLD, int(2/3.0*maxsize - 1))
 
     # Darken the image
-    overlay = Image.new("RGBA", img.size, (0, 0, 0, 120))  # alpha = 120 (~50% dark)
+    overlay = Image.new("RGBA", img.size, (0, 0, 0, 100))  # alpha = 120 (~50% dark)
     img = img.convert("RGBA")
     img = Image.alpha_composite(img, overlay)
     draw = ImageDraw.Draw(img)
