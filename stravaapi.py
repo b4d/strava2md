@@ -280,7 +280,7 @@ def overlayify_image(_image, _title, _date, _distance, _elevation, _moving):
     draw = ImageDraw.Draw(img)
 
     maxsize=h/12
-    if w>h:
+    if h>w:
         maxsize=w/12
     
     fontTitle = ImageFont.truetype(FONT_PATH, int(maxsize))
@@ -290,7 +290,12 @@ def overlayify_image(_image, _title, _date, _distance, _elevation, _moving):
     draw.text((20, 20), "GH://b4d/strava2md", (255,255,255), font=fontSubject)
     draw.text((w-150, 20), _date, (255,255,255), font=fontSubject)
     # TODO: two-line split if _title > 28 chars -ish
-    draw.text((20, 2/3.0*h), _title, (255,255,255), font=fontTitle)
+    if len(_title)>28:
+        splitpoint =  _title.index(" ",20)
+        draw.text((20, 2/3.0*h-25), _title[0:splitpoint], (255,255,255), font=fontTitle)
+        draw.text((20, 2/3.0*h+35), _title[splitpoint+1:], (255,255,255), font=fontTitle)
+    else:
+        draw.text((20, 2/3.0*h), _title, (255,255,255), font=fontTitle)
     draw.text((20, 7/8.0*h-15), "Ride length:", (255,255,255), font=fontSubject)
     draw.text((20, 7/8.0*h+15), f"{_distance} km", (255,255,255), font=fontData)
     draw.text((w/3.0, 7/8.0*h-15), "Elevation Gain", (255,255,255), font=fontSubject)
