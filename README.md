@@ -1,5 +1,7 @@
 # Strava2.md
 
+![Logo](assets/logo-250.png)
+
 Strava activity to hugo-compatibile markdown converter.
 
 Parser takes an activity id, pulls all data via Strava API and generates a markdown file containing:
