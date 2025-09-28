@@ -450,7 +450,7 @@ def overlayify_image(_image, _title, _date, _distance, _elevation, _moving, poly
     y_start = stats_y_top - title_block_height - 20
 
     # --- Icon above title ---
-    icon = Image.open("assets/icon-mtb.png").convert("RGBA")
+    icon = Image.open("assets/icons/icon-mtb.png").convert("RGBA")
     icon = icon.resize((int(2/3.0*maxsize - 1), int(2/3.0*maxsize - 1)))
     icon_x = margin
     icon_y = y_start - icon.height - 10
