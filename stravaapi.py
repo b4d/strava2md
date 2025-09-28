@@ -17,8 +17,12 @@ import polyline
 import numpy as np
 import os
 import argparse, sys
-from config import OAUTH_CLIENT_ID, OAUTH_CLIENT_SECRET, OAUTH_CBACK_URL, HOME_COORDINATES, HOME_OFFSET
+from config import OAUTH_CLIENT_ID, OAUTH_CLIENT_SECRET, OAUTH_CBACK_URL 
+from config import HOME_COORDINATES, HOME_OFFSET, FONT_PATH
+
 import math
+from PIL import Image, ImageFont, ImageDraw
+import io
 
 # OAuth workflow
 import webbrowser, threading, re
@@ -268,6 +272,33 @@ def fetch_activity_data(activity_id):
     photos = list_photos(activity_id)
     return activity_summary, poly_line, photos
 
+def overlayify_image(_image, _title, _date, _distance, _elevation, _moving):
+    img = Image.open(io.BytesIO(_image))
+    #img = Image.frombytes(None, (128,128), _image)
+    #Image.open(StringIO.StringIO(image_data))
+    w = img.width
+    h = img.height
+    draw = ImageDraw.Draw(img)
+    maxsize=h/12
+    fontTitle = ImageFont.truetype(FONT_PATH, int(maxsize))
+    fontSubject = ImageFont.truetype(FONT_PATH, int(maxsize/2-1))
+    fontData = ImageFont.truetype(FONT_PATH, int(2/3.0*maxsize-1))
+    draw.text((20, 20), "GH://b4d/strava2md", (255,255,255), font=fontSubject)
+    draw.text((w-150, 20), _date, (255,255,255), font=fontSubject)
+    # TODO: two-line split if _title > 28 chars -ish
+    draw.text((20, 2/3.0*h), _title, (255,255,255), font=fontTitle)
+    draw.text((20, 7/8.0*h-15), "Ride length:", (255,255,255), font=fontSubject)
+    draw.text((20, 7/8.0*h+15), f"{_distance} km", (255,255,255), font=fontData)
+    draw.text((w/3.0, 7/8.0*h-15), "Elevation Gain", (255,255,255), font=fontSubject)
+    draw.text((w/3.0, 7/8.0*h+15), f"{_elevation} m", (255,255,255), font=fontData)
+    draw.text((2*w/3.0, 7/8.0*h-15), "Time", (255,255,255), font=fontSubject)
+    draw.text((2*w/3, 7/8.0*h+15), f"{_moving}", (255,255,255), font=fontData)
+    # can save to file with
+    #img.save('fpath')
+    _out = io.BytesIO()
+    img.save(_out, format='JPEG')
+    return _out.getvalue()
+
 def generate_markdown(_summary, _photos, _polyline, _ftemplate='post_template.md', _leaftemplate='leaflet_template.html'):
     with open(_ftemplate,'r') as t:
         post_template=t.read()
@@ -285,7 +316,13 @@ def generate_markdown(_summary, _photos, _polyline, _ftemplate='post_template.md
         img_data = requests.get(_summary['image']).content
         with open(f'./Rides/{_summary['id']}/photo_0.jpg', 'wb') as handler:
             handler.write(img_data)
-        _rideImg = f"\n![Ride Image](./{_summary['id']}/photo_0.jpg)"
+
+        img_overlayed = overlayify_image(img_data, _summary['name'], _summary['start_date'], _summary['distance_km'], _summary['elevation_gain_m'], _summary['moving_time'])
+        with open(f'./Rides/{_summary['id']}/photo_0o.jpg', 'wb') as handler:
+            handler.write(img_overlayed)
+
+        _rideImg = f"\n![Ride Image](./{_summary['id']}/photo_0o.jpg)"
+
     _leaflet = leaflet_template % {'POLYLINE':str(_polyline) }
 
     _photos = _photos if len(_photos) > 1 else '> As said, none taken, too busy riding'
