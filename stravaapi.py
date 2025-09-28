@@ -274,15 +274,19 @@ def fetch_activity_data(activity_id):
 
 def overlayify_image(_image, _title, _date, _distance, _elevation, _moving):
     img = Image.open(io.BytesIO(_image))
-    #img = Image.frombytes(None, (128,128), _image)
-    #Image.open(StringIO.StringIO(image_data))
+
     w = img.width
     h = img.height
     draw = ImageDraw.Draw(img)
+
     maxsize=h/12
+    if w>h:
+        maxsize=w/12
+    
     fontTitle = ImageFont.truetype(FONT_PATH, int(maxsize))
     fontSubject = ImageFont.truetype(FONT_PATH, int(maxsize/2-1))
     fontData = ImageFont.truetype(FONT_PATH, int(2/3.0*maxsize-1))
+
     draw.text((20, 20), "GH://b4d/strava2md", (255,255,255), font=fontSubject)
     draw.text((w-150, 20), _date, (255,255,255), font=fontSubject)
     # TODO: two-line split if _title > 28 chars -ish
@@ -293,8 +297,7 @@ def overlayify_image(_image, _title, _date, _distance, _elevation, _moving):
     draw.text((w/3.0, 7/8.0*h+15), f"{_elevation} m", (255,255,255), font=fontData)
     draw.text((2*w/3.0, 7/8.0*h-15), "Time", (255,255,255), font=fontSubject)
     draw.text((2*w/3, 7/8.0*h+15), f"{_moving}", (255,255,255), font=fontData)
-    # can save to file with
-    #img.save('fpath')
+    
     _out = io.BytesIO()
     img.save(_out, format='JPEG')
     return _out.getvalue()
