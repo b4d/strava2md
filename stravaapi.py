@@ -290,34 +290,97 @@ def wrap_title(draw, text, font, max_width):
             break
     return [line1, line2] if line2 else [line1]
 
-def draw_polyline_on_image(draw, poly_line, w, h, margin=40, color=(253,151,32,255), width=4, scale=0.5):
-    """Draw smaller polyline scaled by `scale` (0 < scale ≤ 1)."""
+def draw_polyline_on_image(
+    draw,
+    poly_line,
+    w, h,
+    margin=40,
+    color=(253,151,32,255),
+    width=4,
+    scale=0.4,                 # fraction of drawable area (0<scale<=1)
+    anchor="topmiddle",         # "topright" | "topleft" | "bottomright" | "bottomleft"
+    supersample=3,             # AA factor
+    outline_color=(0,0,0,180), # soft outline for contrast
+    outline_extra=2            # extra px around the main width for outline
+):
+    """Render a route with correct aspect by projecting lat/lon to Web-Mercator
+    and fitting it into a smaller box anchored inside the image.
+    """
     if not poly_line:
         return
 
-    lats = [p[0] for p in poly_line]
-    lons = [p[1] for p in poly_line]
-    min_lat, max_lat = min(lats), max(lats)
-    min_lon, max_lon = min(lons), max(lons)
+    # --- Project lat/lon to Web-Mercator (meters) ---
+    R = 6378137.0
+    def mercator(lat, lon):
+        # clamp latitude for numerical stability
+        lat = max(min(lat, 85.05112878), -85.05112878)
+        x = math.radians(lon) * R
+        y = math.log(math.tan(math.pi/4.0 + math.radians(lat)/2.0)) * R
+        return x, y
 
-    lat_span = max(max_lat - min_lat, 1e-9)
-    lon_span = max(max_lon - min_lon, 1e-12)
+    mx, my = zip(*(mercator(p[0], p[1]) for p in poly_line))
+    min_x, max_x = min(mx), max(mx)
+    min_y, max_y = min(my), max(my)
+    span_x = max(max_x - min_x, 1e-6)
+    span_y = max(max_y - min_y, 1e-6)
 
-    # Shrunken drawing area
-    plot_w = (w - 2*margin) * scale
-    plot_h = (h - 2*margin) * scale
+    # --- Target plot box on final image ---
+    plot_w = int((w - 2*margin) * scale)
+    plot_h = int((h - 2*margin) * scale)
 
-    # Anchor in top-right corner
-    offset_x = w - margin - plot_w
-    offset_y = margin
+    if anchor == "topright":
+        base_x, base_y = w - margin - plot_w, margin
+    elif anchor == "topleft":
+        base_x, base_y = margin, margin
+    elif anchor == "topmiddle":
+        base_x = (w - plot_w) / 2
+        base_y = margin
+    elif anchor == "bottomright":
+        base_x, base_y = w - margin - plot_w, h - margin - plot_h
+    elif anchor == "bottommiddle":
+        base_x = (w - plot_w) / 2
+        base_y = h - margin - plot_h
+    else:  # "bottomleft"
+        base_x, base_y = margin, h - margin - plot_h
 
-    def scale_point(lat, lon):
-        x = offset_x + (lon - min_lon) / lon_span * plot_w
-        y = offset_y + (max_lat - lat) / lat_span * plot_h
+    # --- Supersampled overlay for crisp anti-aliased result ---
+    ss = max(1, int(supersample))
+    big_w, big_h = plot_w * ss, plot_h * ss
+    overlay = Image.new("RGBA", (big_w, big_h), (0,0,0,0))
+    odraw = ImageDraw.Draw(overlay)
+
+    # Preserve aspect ratio with a single uniform scale; center within box
+    sx = (big_w - 1) / span_x
+    sy = (big_h - 1) / span_y
+    s  = min(sx, sy)
+    off_x = (big_w - span_x * s) / 2.0
+    off_y = (big_h - span_y * s) / 2.0
+
+    def to_px(xm, ym):
+        x = off_x + (xm - min_x) * s
+        y = off_y + (max_y - ym) * s  # flip vertical
         return (x, y)
 
-    path = [scale_point(lat, lon) for lat, lon, _ in poly_line]
-    draw.line(path, fill=color, width=width, joint="curve")
+    path = [to_px(x, y) for x, y in zip(mx, my)]
+
+    # Optional soft outline for visibility on busy photos
+    if outline_extra > 0:
+        odraw.line(path, fill=outline_color, width=width*ss + 2*outline_extra, joint="curve")
+
+    odraw.line(path, fill=color, width=max(1, width*ss), joint="curve")
+
+    # Downsample with LANCZOS and paste into the base image
+    overlay_small = overlay.resize((plot_w, plot_h), Image.LANCZOS)
+
+    # Try to obtain the underlying image from the draw object (works in modern Pillow)
+    base_img = getattr(draw, "_image", None)
+    if base_img is None:
+        # Fallback for some Pillow versions
+        base_img = getattr(draw, "im", None)
+        if base_img is None:
+            raise RuntimeError("Could not access base image from draw; pass the PIL Image to paste the overlay.")
+
+    base_img.paste(overlay_small, (int(base_x), int(base_y)), overlay_small)
 
 def overlayify_image(_image, _title, _date, _distance, _elevation, _moving, poly_line=None):
 
@@ -373,16 +436,43 @@ def overlayify_image(_image, _title, _date, _distance, _elevation, _moving, poly
 
     # --- Polyline on image (only if provided & non-empty) ---
     if poly_line:
-        draw_polyline_on_image(draw, poly_line, w, h, margin=40, scale=0.4)
+        draw_polyline_on_image(draw, poly_line, w, h, margin=40, scale=0.6)
 
     # --- Bottom stats ---
+    bottom_y_label = int(7/8.0 * h - 15)
+    bottom_y_value = int(7/8.0 * h + 15)
 
-    draw.text((margin,       7/8.0*h - 15), "Distance",   (255, 255, 255, 255), font=fontSubject)
-    draw.text((margin,       7/8.0*h + 15), f"{_distance} km", (255, 255, 255, 255), font=fontData)
-    draw.text((w/3.0,    7/8.0*h - 15), "Elev Gain",  (255, 255, 255, 255), font=fontSubject)
-    draw.text((w/3.0,    7/8.0*h + 15), f"{_elevation} m", (255, 255, 255, 255), font=fontData)
-    draw.text((2*w/3.0,  7/8.0*h - 15), "Time",       (255, 255, 255, 255), font=fontSubject)
-    draw.text((2*w/3.0,  7/8.0*h + 15), f"{_moving}", (255, 255, 255, 255), font=fontData)
+    inner_w = w - 2*margin
+    col_w = inner_w / 3.0
+
+    x_left   = margin                   # left column anchor
+    x_center = margin + inner_w/2       # middle column anchor
+    x_right  = w - margin               # right column anchor
+
+    # Distance (value left, label centered above it)
+    val_dist = f"{_distance} km"
+    val_w = draw.textlength(val_dist, font=fontData)
+    label = "Distance"
+    label_w = draw.textlength(label, font=fontSubject)
+    draw.text((x_left, bottom_y_value), val_dist, (255,255,255,255), font=fontData)
+    draw.text((x_left + val_w/2 - label_w/2, bottom_y_label), label, (255,255,255,255), font=fontSubject)
+
+    # Elev Gain (value centered, label centered above)
+    val_elev = f"{_elevation}".rstrip("0").rstrip(".") + " m"
+    val_w = draw.textlength(val_elev, font=fontData)
+    label = "Elev Gain"
+    label_w = draw.textlength(label, font=fontSubject)
+    draw.text((x_center - val_w/2, bottom_y_value), val_elev, (255,255,255,255), font=fontData)
+    draw.text((x_center - label_w/2, bottom_y_label), label, (255,255,255,255), font=fontSubject)
+
+    # Time (value right, label centered above it)
+    val_time = f"{_moving}"
+    val_w = draw.textlength(val_time, font=fontData)
+    label = "Time"
+    label_w = draw.textlength(label, font=fontSubject)
+    draw.text((x_right - val_w, bottom_y_value), val_time, (255,255,255,255), font=fontData)
+    draw.text((x_right - val_w/2 - label_w/2, bottom_y_label), label, (255,255,255,255), font=fontSubject)
+
 
     # Flatten to RGB for JPEG (preserves icon edges by compositing with a solid bg)
     out_rgb = Image.new("RGB", img.size, (0, 0, 0))  # background color if any transparency remains
