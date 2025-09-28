@@ -18,7 +18,7 @@ import numpy as np
 import os
 import argparse, sys
 from config import OAUTH_CLIENT_ID, OAUTH_CLIENT_SECRET, OAUTH_CBACK_URL 
-from config import HOME_COORDINATES, HOME_OFFSET, FONT_PATH
+from config import HOME_COORDINATES, HOME_OFFSET, FONT_PATH, FONT_PATH_BOLD
 
 import math
 from PIL import Image, ImageFont, ImageDraw
@@ -272,40 +272,126 @@ def fetch_activity_data(activity_id):
     photos = list_photos(activity_id)
     return activity_summary, poly_line, photos
 
-def overlayify_image(_image, _title, _date, _distance, _elevation, _moving):
-    img = Image.open(io.BytesIO(_image))
+def wrap_title(draw, text, font, max_width):
+    """Wrap title into one or two lines based on available width."""
+    if draw.textlength(text, font=font) <= max_width:
+        return [text]  # fits in one line
 
-    w = img.width
-    h = img.height
+    # Try splitting by spaces
+    words = text.split()
+    line1, line2 = "", ""
+    for word in words:
+        test_line = (line1 + " " + word).strip()
+        if draw.textlength(test_line, font=font) <= max_width:
+            line1 = test_line
+        else:
+            # Move rest of words to line2
+            line2 = " ".join(words[words.index(word):])
+            break
+    return [line1, line2] if line2 else [line1]
+
+def draw_polyline_on_image(draw, poly_line, w, h, margin=40, color=(253,151,32,255), width=4, scale=0.5):
+    """Draw smaller polyline scaled by `scale` (0 < scale ≤ 1)."""
+    if not poly_line:
+        return
+
+    lats = [p[0] for p in poly_line]
+    lons = [p[1] for p in poly_line]
+    min_lat, max_lat = min(lats), max(lats)
+    min_lon, max_lon = min(lons), max(lons)
+
+    lat_span = max(max_lat - min_lat, 1e-9)
+    lon_span = max(max_lon - min_lon, 1e-12)
+
+    # Shrunken drawing area
+    plot_w = (w - 2*margin) * scale
+    plot_h = (h - 2*margin) * scale
+
+    # Anchor in top-right corner
+    offset_x = w - margin - plot_w
+    offset_y = margin
+
+    def scale_point(lat, lon):
+        x = offset_x + (lon - min_lon) / lon_span * plot_w
+        y = offset_y + (max_lat - lat) / lat_span * plot_h
+        return (x, y)
+
+    path = [scale_point(lat, lon) for lat, lon, _ in poly_line]
+    draw.line(path, fill=color, width=width, joint="curve")
+
+def overlayify_image(_image, _title, _date, _distance, _elevation, _moving, poly_line=None):
+
+    margin = 40  # global margin from edge
+
+    # Work in RGBA so we can blend an icon with transparency
+    img = Image.open(io.BytesIO(_image)).convert("RGBA")
+    w, h = img.size
     draw = ImageDraw.Draw(img)
 
-    maxsize=h/12
-    if h>w:
-        maxsize=w/12
-    
-    fontTitle = ImageFont.truetype(FONT_PATH, int(maxsize))
-    fontSubject = ImageFont.truetype(FONT_PATH, int(maxsize/2-1))
-    fontData = ImageFont.truetype(FONT_PATH, int(2/3.0*maxsize-1))
+    # Font sizes
+    maxsize = min(w, h) / 12
+    fontTitle   = ImageFont.truetype(FONT_PATH_BOLD, int(2/3.0*maxsize - 1))
+    fontSubject = ImageFont.truetype(FONT_PATH, int(maxsize/2 - 5))
+    fontData    = ImageFont.truetype(FONT_PATH_BOLD, int(2/3.0*maxsize - 1))
 
-    draw.text((20, 20), "GH://b4d/strava2md", (255,255,255), font=fontSubject)
-    draw.text((w-150, 20), _date, (255,255,255), font=fontSubject)
-    # TODO: two-line split if _title > 28 chars -ish
-    if len(_title)>28:
-        splitpoint =  _title.index(" ",20)
-        draw.text((20, 2/3.0*h-25), _title[0:splitpoint], (255,255,255), font=fontTitle)
-        draw.text((20, 2/3.0*h+35), _title[splitpoint+1:], (255,255,255), font=fontTitle)
-    else:
-        draw.text((20, 2/3.0*h), _title, (255,255,255), font=fontTitle)
-    draw.text((20, 7/8.0*h-15), "Ride length:", (255,255,255), font=fontSubject)
-    draw.text((20, 7/8.0*h+15), f"{_distance} km", (255,255,255), font=fontData)
-    draw.text((w/3.0, 7/8.0*h-15), "Elevation Gain", (255,255,255), font=fontSubject)
-    draw.text((w/3.0, 7/8.0*h+15), f"{_elevation} m", (255,255,255), font=fontData)
-    draw.text((2*w/3.0, 7/8.0*h-15), "Time", (255,255,255), font=fontSubject)
-    draw.text((2*w/3, 7/8.0*h+15), f"{_moving}", (255,255,255), font=fontData)
-    
+    # Darken the image
+    overlay = Image.new("RGBA", img.size, (0, 0, 0, 120))  # alpha = 120 (~50% dark)
+    img = img.convert("RGBA")
+    img = Image.alpha_composite(img, overlay)
+    draw = ImageDraw.Draw(img)
+
+
+    # Text (use 4-tuple RGBA color)
+    # draw.text((20, 20), "GH://b4d/strava2md", (255, 255, 255, 255), font=fontSubject)
+    # draw.text((w - 150, 20), _date, (255, 255, 255, 255), font=fontSubject)
+
+    # --- Bottom stats reference ---
+    stats_y_top = int(7/8.0 * h - 15)   # where you draw "Distance"
+
+    # --- Title wrapping ---
+    max_width = w - margin*2
+    wrapped = wrap_title(draw, _title, fontTitle, max_width)
+
+    # Height of title block (all lines)
+    line_height = int(maxsize * 1.2)
+    title_block_height = len(wrapped) * line_height
+
+    # Place title so its bottom is 20px above stats
+    y_start = stats_y_top - title_block_height - 20
+
+    # --- Icon above title ---
+    icon = Image.open("assets/icon-mtb.png").convert("RGBA")
+    icon = icon.resize((int(2/3.0*maxsize - 1), int(2/3.0*maxsize - 1)))
+    icon_x = margin
+    icon_y = y_start - icon.height - 10
+    img.paste(icon, (icon_x, icon_y), icon)
+
+    # --- Draw wrapped title ---
+    for i, line in enumerate(wrapped):
+        draw.text((margin, y_start + i*line_height), line,
+                  (255,255,255,255), font=fontTitle)
+
+    # --- Polyline on image (only if provided & non-empty) ---
+    if poly_line:
+        draw_polyline_on_image(draw, poly_line, w, h, margin=40, scale=0.4)
+
+    # --- Bottom stats ---
+
+    draw.text((margin,       7/8.0*h - 15), "Distance",   (255, 255, 255, 255), font=fontSubject)
+    draw.text((margin,       7/8.0*h + 15), f"{_distance} km", (255, 255, 255, 255), font=fontData)
+    draw.text((w/3.0,    7/8.0*h - 15), "Elev Gain",  (255, 255, 255, 255), font=fontSubject)
+    draw.text((w/3.0,    7/8.0*h + 15), f"{_elevation} m", (255, 255, 255, 255), font=fontData)
+    draw.text((2*w/3.0,  7/8.0*h - 15), "Time",       (255, 255, 255, 255), font=fontSubject)
+    draw.text((2*w/3.0,  7/8.0*h + 15), f"{_moving}", (255, 255, 255, 255), font=fontData)
+
+    # Flatten to RGB for JPEG (preserves icon edges by compositing with a solid bg)
+    out_rgb = Image.new("RGB", img.size, (0, 0, 0))  # background color if any transparency remains
+    out_rgb.paste(img, mask=img.split()[-1])
+
     _out = io.BytesIO()
-    img.save(_out, format='JPEG')
+    out_rgb.save(_out, format='JPEG', quality=95,subsampling=0)
     return _out.getvalue()
+
 
 def generate_markdown(_summary, _photos, _polyline, _ftemplate='post_template.md', _leaftemplate='leaflet_template.html'):
     with open(_ftemplate,'r') as t:
@@ -316,17 +402,17 @@ def generate_markdown(_summary, _photos, _polyline, _ftemplate='post_template.md
         leaflet_template=t.read()
         t.close()
 
-    if not os.path.exists(f'./Rides/{_summary['id']}/'):
-        os.makedirs(f'./Rides/{_summary['id']}/')
+    if not os.path.exists(f'./Rides/{_summary["id"]}/'):
+        os.makedirs(f'./Rides/{_summary["id"]}/')
 
     _rideImg = '> No photos taken, too busy hammering my pedals'
     if _summary['image']:
         img_data = requests.get(_summary['image']).content
-        with open(f'./Rides/{_summary['id']}/photo_0.jpg', 'wb') as handler:
+        with open(f'./Rides/{_summary["id"]}/photo_0.jpg', 'wb') as handler:
             handler.write(img_data)
 
-        img_overlayed = overlayify_image(img_data, _summary['name'], _summary['start_date'], _summary['distance_km'], _summary['elevation_gain_m'], _summary['moving_time'])
-        with open(f'./Rides/{_summary['id']}/photo_0o.jpg', 'wb') as handler:
+        img_overlayed = overlayify_image(img_data, _summary['name'], _summary['start_date'], _summary['distance_km'], _summary['elevation_gain_m'], _summary['moving_time'],poly_line=_polyline,)
+        with open(f'./Rides/{_summary["id"]}/photo_0o.jpg', 'wb') as handler:
             handler.write(img_overlayed)
 
         _rideImg = f"\n![Ride Image](./{_summary['id']}/photo_0o.jpg)"
