@@ -19,17 +19,7 @@ See help:
 python stravaapi.py
 ```
 
-## Converting maps and charts to png
-
-- requires chrome and selenium
-- TODO FIXME whateverify: make it better
-
-```
-cp Rides/relevant.md tmp/index.html
-python3 page2png.py
-```
-
-## required hugo mods:
+## Required hugo mods:
 
 Ensure file `layouts/shortcodes/rawhtml.html` with content:
 ```
