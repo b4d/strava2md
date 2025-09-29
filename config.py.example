@@ -1,9 +1,13 @@
+#### config.py
+
+#### Activity fetch setup
+
 # Set up your Strava API application
 # Client ID
 OAUTH_CLIENT_ID = "..."
 # Client secret
 OAUTH_CLIENT_SECRET = "..."
-# authorization callback domain
+# authorization callback domain, default is okay - no need to change that.
 OAUTH_CBACK_URL = "http://localhost:8088/exchange_token"
 
 # Privacy controls
@@ -15,5 +19,11 @@ HOME_COORDINATES = [
 # Distance in meters around HOME_COORDINATES to hide tracks
 HOME_OFFSET = 1000
 
-FONT_PATH = "./assets/fonts/Roboto-Regular.ttf"
+#### Builder setup:
+
+# Your Hugo blog's home folder, optional
+HUGO_PATH = "/home/user/hugo_site/"
+
+# Path to fonts, used for image overlay
+FONT_PATH_REGULAR = "./assets/fonts/Roboto-Regular.ttf"
 FONT_PATH_BOLD = "./assets/fonts/Roboto-Bold.ttf"
