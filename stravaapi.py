@@ -134,14 +134,16 @@ def list_photos(activity_id, start_date):
     if response.status_code == 200:
         photos = response.json()
         output = []
+        if not os.path.exists(f"./Rides/{start_date}-{activity_id}/"):
+            os.makedirs(f"./Rides/{start_date}-{activity_id}/")
 
         for i, photo in enumerate(photos, 1):
             url = photo.get("urls", {}).get("5000")
             if url:
                 img_data = requests.get(url).content
-                with open(f"./Rides/{start_date}-{activity_id}_photo_{i}.jpg", 'wb') as handler:
+                with open(f"./Rides/{start_date}-{activity_id}/photo_{i}.jpg", 'wb') as handler:
                     handler.write(img_data)
-                output.append(f"![Ride Image {i}](./{start_date}-{activity_id}_photo_{i}.jpg)")
+                output.append(f"![Ride Image {i}](./photo_{i}.jpg)")
 
         return "\n".join(output)
     else:
@@ -453,18 +455,21 @@ def generate_markdown(_summary, _photos, _polyline, _ftemplate='./templates/post
         leaflet_template=t.read()
         t.close()
 
+    if not os.path.exists(f"./Rides/{_summary['start_date']}-{_summary['id']}/"):
+        os.makedirs(f"./Rides/{_summary['start_date']}-{_summary['id']}/")
+
     _rideImg = '> No photos taken, too busy hammering my pedals'
     if _summary['image']:
         img_data = requests.get(_summary['image']).content
-        with open(f"./Rides/{_summary['start_date']}-{_summary['id']}_photo_0.jpg", "wb") as handler:
+        with open(f"./Rides/{_summary['start_date']}-{_summary['id']}/photo_0.jpg", "wb") as handler:
             handler.write(img_data)
 
         # generate ovarlay image
         img_overlayed = overlayify_image(img_data, _summary['name'], _summary['start_date'], _summary['distance_km'], _summary['elevation_gain_m'], _summary['moving_time'], poly_line=_polyline,)
-        with open(f"./Rides/{_summary['start_date']}-{_summary['id']}_photo_0o.jpg", "wb") as handler:
+        with open(f"./Rides/{_summary['start_date']}-{_summary['id']}/photo_0o.jpg", "wb") as handler:
             handler.write(img_overlayed)
 
-        _rideImg = f"\n![Ride Image](./{_summary['start_date']}-{_summary['id']}_photo_0o.jpg)"
+        _rideImg = f"\n![Ride Image](./photo_0o.jpg)"
 
     _leaflet = leaflet_template % {'POLYLINE':str(_polyline) }
 
