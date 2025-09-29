@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-strava2.md
+Strava2.MD
 
 Strava activity to hugo-compatibile markdown converter.
 https://github.com/b4d/strava2md
