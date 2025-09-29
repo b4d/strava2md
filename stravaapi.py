@@ -18,7 +18,7 @@ import numpy as np
 import os
 import argparse, sys
 from config import OAUTH_CLIENT_ID, OAUTH_CLIENT_SECRET, OAUTH_CBACK_URL 
-from config import HOME_COORDINATES, HOME_OFFSET, FONT_PATH, FONT_PATH_BOLD
+from config import HOME_COORDINATES, HOME_OFFSET, FONT_PATH_REGULAR, FONT_PATH_BOLD
 
 import math
 from PIL import Image, ImageFont, ImageDraw, ImageOps
@@ -200,16 +200,14 @@ def list_photos(activity_id, start_date):
     if response.status_code == 200:
         photos = response.json()
         output = []
-        if not os.path.exists(f"./Rides/{start_date}-{activity_id}/"):
-            os.makedirs(f"./Rides/{start_date}-{activity_id}/")
 
         for i, photo in enumerate(photos, 1):
             url = photo.get("urls", {}).get("5000")
             if url:
                 img_data = requests.get(url).content
-                with open(f"./Rides/{start_date}-{activity_id}/photo_{i}.jpg", 'wb') as handler:
+                with open(f"./Rides/{activity_id}_photo_{i}.jpg", 'wb') as handler:
                     handler.write(img_data)
-                output.append(f"![Ride Image {i}](./photo_{i}.jpg)")
+                output.append(f"![Ride Image {i}](./{activity_id}_photo_{i}.jpg)")
 
         return "\n".join(output)
     else:
@@ -421,7 +419,7 @@ def overlayify_image(_image, _title, _date, _distance, _elevation, _moving, poly
     # Font sizes
     maxsize = min(w, h) / 12
     fontTitle   = ImageFont.truetype(FONT_PATH_BOLD, int(2/3.0*maxsize - 1))
-    fontSubject = ImageFont.truetype(FONT_PATH, int(maxsize/2 - 5))
+    fontSubject = ImageFont.truetype(FONT_PATH_REGULAR, int(maxsize/2 - 5))
     fontData    = ImageFont.truetype(FONT_PATH_BOLD, int(2/3.0*maxsize - 1))
 
     # Darken the image
@@ -512,7 +510,7 @@ def overlayify_image(_image, _title, _date, _distance, _elevation, _moving, poly
     return _out.getvalue()
 
 
-def generate_markdown(_summary, _photos, _polyline, _ftemplate='post_template.md', _leaftemplate='leaflet_template.html'):
+def generate_markdown(_summary, _photos, _polyline, _ftemplate='./templates/post_template.md', _leaftemplate='./templates/leaflet_template.html'):
     with open(_ftemplate,'r') as t:
         post_template=t.read()
         t.close()
@@ -521,21 +519,18 @@ def generate_markdown(_summary, _photos, _polyline, _ftemplate='post_template.md
         leaflet_template=t.read()
         t.close()
 
-    if not os.path.exists(f"./Rides/{_summary['start_date']}-{_summary['id']}/"):
-        os.makedirs(f"./Rides/{_summary['start_date']}-{_summary['id']}/")
-
     _rideImg = '> No photos taken, too busy hammering my pedals'
     if _summary['image']:
         img_data = requests.get(_summary['image']).content
-        with open(f"./Rides/{_summary['start_date']}-{_summary['id']}/photo_0.jpg", "wb") as handler:
+        with open(f"./Rides/{_summary['id']}_photo_0.jpg", "wb") as handler:
             handler.write(img_data)
 
         # generate ovarlay image
-        img_overlayed = overlayify_image(img_data, _summary['name'], _summary['start_date'], _summary['distance_km'], _summary['elevation_gain_m'], _summary['moving_time'],poly_line=_polyline,)
-        with open(f"./Rides/{_summary['start_date']}-{_summary['id']}/photo_0o.jpg", "wb") as handler:
+        img_overlayed = overlayify_image(img_data, _summary['name'], _summary['start_date'], _summary['distance_km'], _summary['elevation_gain_m'], _summary['moving_time'], poly_line=_polyline,)
+        with open(f"./Rides/{_summary['id']}_photo_0o.jpg", "wb") as handler:
             handler.write(img_overlayed)
 
-        _rideImg = f"\n![Ride Image](./photo_0o.jpg)"
+        _rideImg = f"\n![Ride Image](./{_summary['id']}_photo_0o.jpg)"
 
     _leaflet = leaflet_template % {'POLYLINE':str(_polyline) }
 
