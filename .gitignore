@@ -5,5 +5,5 @@ config.py
 !README.md
 !post_template.md
 tmp/*
-Rides/*
+Activities/*
 venv/

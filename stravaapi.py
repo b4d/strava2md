@@ -9,7 +9,6 @@ https://github.com/b4d/strava2md
 import requests
 from datetime import timedelta, datetime
 import time
-import polyline
 import numpy as np
 import os
 import argparse, sys
@@ -139,9 +138,9 @@ def list_photos(activity_id, start_date):
             url = photo.get("urls", {}).get("5000")
             if url:
                 img_data = requests.get(url).content
-                with open(f"./Rides/{start_date}-{activity_id}_photo_{i}.jpg", 'wb') as handler:
+                with open(f"./Activities/{start_date}-{activity_id}_photo_{i}.jpg", 'wb') as handler:
                     handler.write(img_data)
-                output.append(f"![Ride Image {i}](./{start_date}-{activity_id}_photo_{i}.jpg)")
+                output.append(f"![Activity Image {i}](./{start_date}-{activity_id}_photo_{i}.jpg)")
 
         return "\n".join(output)
     else:
@@ -453,22 +452,22 @@ def generate_markdown(_summary, _photos, _polyline, _ftemplate='./templates/post
         leaflet_template=t.read()
         t.close()
 
-    _rideImg = '> No photos taken, too busy hammering my pedals'
+    _headerImg = ''
     if _summary['image']:
         img_data = requests.get(_summary['image']).content
-        with open(f"./Rides/{_summary['start_date']}-{_summary['id']}_photo_0.jpg", "wb") as handler:
+        with open(f"./Activities/{_summary['start_date']}-{_summary['id']}_photo_0.jpg", "wb") as handler:
             handler.write(img_data)
 
         # generate ovarlay image
         img_overlayed = overlayify_image(img_data, _summary['name'], _summary['start_date'], _summary['distance_km'], _summary['elevation_gain_m'], _summary['moving_time'], poly_line=_polyline,)
-        with open(f"./Rides/{_summary['start_date']}-{_summary['id']}_photo_0o.jpg", "wb") as handler:
+        with open(f"./Activities/{_summary['start_date']}-{_summary['id']}_photo_0o.jpg", "wb") as handler:
             handler.write(img_overlayed)
 
-        _rideImg = f"\n![Ride Image](./{_summary['start_date']}-{_summary['id']}_photo_0o.jpg)"
+        _headerImg = f"\n![Activity Header Image](./{_summary['start_date']}-{_summary['id']}_photo_0o.jpg)"
 
     _leaflet = leaflet_template % {'POLYLINE':str(_polyline) }
 
-    _photos = _photos if len(_photos) > 1 else '> As said, none taken, too busy riding'
+    _photos = _photos if len(_photos) > 1 else 'No photos taken, have had a wonderful time instead :)'
     generated_markdown = post_template % {
                         'ID':_summary['id'],
                         'TITLE':_summary['name'],
@@ -476,7 +475,7 @@ def generate_markdown(_summary, _photos, _polyline, _ftemplate='./templates/post
                         'ISDRAFT':'false',
                         'CATS':'["MTB"]',
                         'TAGS':'["rides", "mtb", "cycling", "bike"]',
-                        'RIDEIMG': _rideImg,
+                        'HEADERIMG': _headerImg,
                         'DISTANCE': _summary['distance_km'],
                         'ELE_GAIN': _summary['elevation_gain_m'],
                         'TIME_MOV':_summary['moving_time'],
@@ -559,7 +558,7 @@ def main(args):
     print(f"✅ Log in successful")
 
     # Ensure subfolder
-    os.makedirs("Rides", exist_ok=True)
+    os.makedirs("Activities", exist_ok=True)
 
     if args.since:
         timestamp=time.mktime(datetime.strptime(args.since, "%Y-%m-%d").timetuple())
@@ -587,7 +586,7 @@ def main(args):
             markdown_post = generate_markdown(_summary = summary,
                                             _polyline = poly_line,
                                             _photos = photos)
-            filename = f"Rides/{summary['start_date']}-{summary['id']}.md"
+            filename = f"Activities/{summary['start_date']}-{summary['id']}.md"
             save_markdown(_content=markdown_post, _fname=filename)
 
         else:
