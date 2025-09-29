@@ -1,13 +1,9 @@
 #!/usr/bin/env python3
 """
+Strava2.MD
 
-    - Pull all activities
-    - If suffer score > something
-    - Pull activity and generate YYYY-MM-DD-{ID}.md
-    - Put that file in the blog/Rides/ folder
-
-TODO:
-    - photos at coordinates as popups
+Strava activity to hugo-compatibile markdown converter.
+https://github.com/b4d/strava2md
 """
 
 import requests
@@ -18,7 +14,7 @@ import numpy as np
 import os
 import argparse, sys
 from config import OAUTH_CLIENT_ID, OAUTH_CLIENT_SECRET, OAUTH_CBACK_URL 
-from config import HOME_COORDINATES, HOME_OFFSET, FONT_PATH, FONT_PATH_BOLD
+from config import HOME_COORDINATES, HOME_OFFSET, FONT_PATH_REGULAR, FONT_PATH_BOLD
 
 import math
 from PIL import Image, ImageFont, ImageDraw, ImageOps
@@ -32,11 +28,9 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 STRAVA_API_ROOT = "https://www.strava.com/api/v3"
 VERBOSE=False
 
-# These badbois get populated with oauth flow:
 oauthcode = "" 
 access_token = ""
 headers = ""
-
 
 # Used to make home locations private
 def haversine_m(lat1, lon1, lat2, lon2):
@@ -118,66 +112,6 @@ def _align_polyline(activity_id):
     # Ensure at least 2 points after trimming
     return poly_line if len(poly_line) >= 2 else []
 
-# Return array of activity IDs where suffer_score (relative effort) is over 200
-def get_sufferfest_activities(access_token, suffer_threshold=200, per_page=100, max_pages=10):
-    url = f"{STRAVA_API_ROOT}/athlete/activities"
-
-    result_ids = []
-
-    for page in range(1, max_pages + 1):
-        params = {
-            "page": page,
-            "per_page": per_page
-        }
-
-        response = requests.get(url, headers=headers, params=params)
-
-        if response.status_code != 200:
-            print(f"⚠️ Failed to fetch page {page}: {response.status_code}")
-            break
-
-        activities = response.json()
-
-        if not activities:
-            break  # No more data
-
-        for activity in activities:
-            score = activity.get("suffer_score")
-            if score is not None and score > suffer_threshold:
-                result_ids.append(activity["id"])
-
-    return result_ids
-
-# Return array of activity IDs that are defined as MountainBikeRide
-def get_mtb_ride_ids(access_token, per_page=100, max_pages=10):
-    url = f"{STRAVA_API_ROOT}/athlete/activities"
-
-    mtb_ids = []
-
-    for page in range(1, max_pages + 1):
-        params = {
-            "page": page,
-            "per_page": per_page
-        }
-
-        response = requests.get(url, headers=headers, params=params)
-
-        if response.status_code != 200:
-            print(f"⚠️ Failed to fetch page {page}: {response.status_code} {activity_id}")
-            break
-
-        activities = response.json()
-
-        if not activities:
-            break  # No more activities
-
-        for activity in activities:
-            # Match type and sub-type
-            if activity.get("sport_type") == "MountainBikeRide":
-                mtb_ids.append(activity["id"])
-
-    return mtb_ids
-
 def getStream(activity_id, keys, series_type='distance', resolution='high'):
     stream_url = f"{STRAVA_API_ROOT}/activities/{activity_id}/streams"
     stream_params = {
@@ -200,16 +134,14 @@ def list_photos(activity_id, start_date):
     if response.status_code == 200:
         photos = response.json()
         output = []
-        if not os.path.exists(f"./Rides/{start_date}-{activity_id}/"):
-            os.makedirs(f"./Rides/{start_date}-{activity_id}/")
 
         for i, photo in enumerate(photos, 1):
             url = photo.get("urls", {}).get("5000")
             if url:
                 img_data = requests.get(url).content
-                with open(f"./Rides/{start_date}-{activity_id}/photo_{i}.jpg", 'wb') as handler:
+                with open(f"./Rides/{start_date}-{activity_id}_photo_{i}.jpg", 'wb') as handler:
                     handler.write(img_data)
-                output.append(f"![Ride Image {i}](./photo_{i}.jpg)")
+                output.append(f"![Ride Image {i}](./{start_date}-{activity_id}_photo_{i}.jpg)")
 
         return "\n".join(output)
     else:
@@ -421,7 +353,7 @@ def overlayify_image(_image, _title, _date, _distance, _elevation, _moving, poly
     # Font sizes
     maxsize = min(w, h) / 12
     fontTitle   = ImageFont.truetype(FONT_PATH_BOLD, int(2/3.0*maxsize - 1))
-    fontSubject = ImageFont.truetype(FONT_PATH, int(maxsize/2 - 5))
+    fontSubject = ImageFont.truetype(FONT_PATH_REGULAR, int(maxsize/2 - 5))
     fontData    = ImageFont.truetype(FONT_PATH_BOLD, int(2/3.0*maxsize - 1))
 
     # Darken the image
@@ -512,7 +444,7 @@ def overlayify_image(_image, _title, _date, _distance, _elevation, _moving, poly
     return _out.getvalue()
 
 
-def generate_markdown(_summary, _photos, _polyline, _ftemplate='post_template.md', _leaftemplate='leaflet_template.html'):
+def generate_markdown(_summary, _photos, _polyline, _ftemplate='./templates/post_template.md', _leaftemplate='./templates/leaflet_template.html'):
     with open(_ftemplate,'r') as t:
         post_template=t.read()
         t.close()
@@ -521,21 +453,18 @@ def generate_markdown(_summary, _photos, _polyline, _ftemplate='post_template.md
         leaflet_template=t.read()
         t.close()
 
-    if not os.path.exists(f"./Rides/{_summary['start_date']}-{_summary['id']}/"):
-        os.makedirs(f"./Rides/{_summary['start_date']}-{_summary['id']}/")
-
     _rideImg = '> No photos taken, too busy hammering my pedals'
     if _summary['image']:
         img_data = requests.get(_summary['image']).content
-        with open(f"./Rides/{_summary['start_date']}-{_summary['id']}/photo_0.jpg", "wb") as handler:
+        with open(f"./Rides/{_summary['start_date']}-{_summary['id']}_photo_0.jpg", "wb") as handler:
             handler.write(img_data)
 
         # generate ovarlay image
-        img_overlayed = overlayify_image(img_data, _summary['name'], _summary['start_date'], _summary['distance_km'], _summary['elevation_gain_m'], _summary['moving_time'],poly_line=_polyline,)
-        with open(f"./Rides/{_summary['start_date']}-{_summary['id']}/photo_0o.jpg", "wb") as handler:
+        img_overlayed = overlayify_image(img_data, _summary['name'], _summary['start_date'], _summary['distance_km'], _summary['elevation_gain_m'], _summary['moving_time'], poly_line=_polyline,)
+        with open(f"./Rides/{_summary['start_date']}-{_summary['id']}_photo_0o.jpg", "wb") as handler:
             handler.write(img_overlayed)
 
-        _rideImg = f"\n![Ride Image](./photo_0o.jpg)"
+        _rideImg = f"\n![Ride Image](./{_summary['start_date']}-{_summary['id']}_photo_0o.jpg)"
 
     _leaflet = leaflet_template % {'POLYLINE':str(_polyline) }
 
