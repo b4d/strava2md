@@ -21,8 +21,9 @@ except ImportError:
     HOME_OFFSET = 0
 
 try:
-    from config import HUGO_CATS, HUGO_TAGS
+    from config import HUGO_PATH, HUGO_CATS, HUGO_TAGS
 except ImportError:
+    HUGO_PATH = ""
     HUGO_CATS = {}
     HUGO_TAGS = {}
     
