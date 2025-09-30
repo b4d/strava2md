@@ -12,22 +12,8 @@ import time
 import numpy as np
 import os
 import argparse, sys
-from config import OAUTH_CLIENT_ID, OAUTH_CLIENT_SECRET, OAUTH_CBACK_URL 
-from config import FONT_PATH_REGULAR, FONT_PATH_BOLD
-try:
-    from config import HOME_COORDINATES, HOME_OFFSET
-except ImportError:
-    HOME_COORDINATES = []
-    HOME_OFFSET = 0
 
-try:
-    from config import HUGO_PATH, HUGO_CATS, HUGO_TAGS
-except ImportError:
-    HUGO_PATH = ""
-    HUGO_CATS = {}
-    HUGO_TAGS = {}
-    
-
+# Imaging workflow
 import math
 from PIL import Image, ImageFont, ImageDraw, ImageOps
 import io
@@ -38,7 +24,22 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 
 # Strava root API
 STRAVA_API_ROOT = "https://www.strava.com/api/v3"
-VERBOSE=False
+
+# config
+from config import OAUTH_CLIENT_ID, OAUTH_CLIENT_SECRET, OAUTH_CBACK_URL, VERBOSE
+from config import FONT_PATH_REGULAR, FONT_PATH_BOLD
+try:
+    from config import HOME_COORDINATES, HOME_OFFSET
+except ImportError:
+    HOME_COORDINATES = []
+    HOME_OFFSET = 0
+try:
+    from config import HUGO_PATH, HUGO_CATS, HUGO_TAGS
+except ImportError:
+    HUGO_PATH = ""
+    HUGO_CATS = {}
+    HUGO_TAGS = {}
+
 
 oauthcode = "" 
 access_token = ""

@@ -34,3 +34,5 @@ HUGO_TAGS = {
 # Path to fonts, used for image overlay
 FONT_PATH_REGULAR = "./assets/fonts/Roboto-Regular.ttf"
 FONT_PATH_BOLD = "./assets/fonts/Roboto-Bold.ttf"
+
+VERBOSE=False
