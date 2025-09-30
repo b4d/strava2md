@@ -9,13 +9,11 @@ https://github.com/b4d/strava2md
 import requests
 from datetime import timedelta, datetime
 import time
-import polyline
 import numpy as np
 import os
 import argparse, sys
-from config import OAUTH_CLIENT_ID, OAUTH_CLIENT_SECRET, OAUTH_CBACK_URL 
-from config import HOME_COORDINATES, HOME_OFFSET, FONT_PATH_REGULAR, FONT_PATH_BOLD
 
+# Imaging workflow
 import math
 from PIL import Image, ImageFont, ImageDraw, ImageOps
 import io
@@ -26,7 +24,22 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 
 # Strava root API
 STRAVA_API_ROOT = "https://www.strava.com/api/v3"
-VERBOSE=False
+
+# config
+from config import OAUTH_CLIENT_ID, OAUTH_CLIENT_SECRET, OAUTH_CBACK_URL, VERBOSE
+from config import FONT_PATH_REGULAR, FONT_PATH_BOLD
+try:
+    from config import HOME_COORDINATES, HOME_OFFSET
+except ImportError:
+    HOME_COORDINATES = []
+    HOME_OFFSET = 0
+try:
+    from config import HUGO_PATH, HUGO_CATS, HUGO_TAGS
+except ImportError:
+    HUGO_PATH = ""
+    HUGO_CATS = {}
+    HUGO_TAGS = {}
+
 
 oauthcode = "" 
 access_token = ""
@@ -134,16 +147,16 @@ def list_photos(activity_id, start_date):
     if response.status_code == 200:
         photos = response.json()
         output = []
-        if not os.path.exists(f"./Rides/{start_date}-{activity_id}/"):
-            os.makedirs(f"./Rides/{start_date}-{activity_id}/")
+        if not os.path.exists(f"./Activities/{start_date}-{activity_id}/"):
+            os.makedirs(f"./Activities/{start_date}-{activity_id}/")
 
         for i, photo in enumerate(photos, 1):
             url = photo.get("urls", {}).get("5000")
             if url:
                 img_data = requests.get(url).content
-                with open(f"./Rides/{start_date}-{activity_id}/photo_{i}.jpg", 'wb') as handler:
+                with open(f"./Activities/{start_date}-{activity_id}/photo_{i}.jpg", 'wb') as handler:
                     handler.write(img_data)
-                output.append(f"![Ride Image {i}](./photo_{i}.jpg)")
+                output.append(f"![Activity Image {i}](./photo_{i}.jpg)")
 
         return "\n".join(output)
     else:
@@ -199,6 +212,7 @@ def fetch_activity_data(activity_id):
         "location_country": data.get("location_country"),
         "description_parsed": (data.get("description") or "").replace('\r\n', '\n').strip(),
         "image": (((data.get("photos") or {}).get("primary") or {}).get("urls") or {}).get("600"),
+        "sport_type": data.get("sport_type"),
     }
 
     poly_line = _align_polyline(activity_id)
@@ -455,40 +469,41 @@ def generate_markdown(_summary, _photos, _polyline, _ftemplate='./templates/post
         leaflet_template=t.read()
         t.close()
 
-    if not os.path.exists(f"./Rides/{_summary['start_date']}-{_summary['id']}/"):
-        os.makedirs(f"./Rides/{_summary['start_date']}-{_summary['id']}/")
+    if not os.path.exists(f"./Activities/{_summary['start_date']}-{_summary['id']}/"):
+        os.makedirs(f"./Activities/{_summary['start_date']}-{_summary['id']}/")
 
-    _rideImg = '> No photos taken, too busy hammering my pedals'
+    _headerImg = ''
     if _summary['image']:
         img_data = requests.get(_summary['image']).content
-        with open(f"./Rides/{_summary['start_date']}-{_summary['id']}/photo_0.jpg", "wb") as handler:
+        with open(f"./Activities/{_summary['start_date']}-{_summary['id']}/photo_0.jpg", "wb") as handler:
             handler.write(img_data)
 
         # generate ovarlay image
         img_overlayed = overlayify_image(img_data, _summary['name'], _summary['start_date'], _summary['distance_km'], _summary['elevation_gain_m'], _summary['moving_time'], poly_line=_polyline,)
-        with open(f"./Rides/{_summary['start_date']}-{_summary['id']}/photo_0o.jpg", "wb") as handler:
+        with open(f"./Activities/{_summary['start_date']}-{_summary['id']}/photo_0o.jpg", "wb") as handler:
             handler.write(img_overlayed)
 
-        _rideImg = f"\n![Ride Image](./photo_0o.jpg)"
+        _headerImg = f"\n![Activity Image](./photo_0o.jpg)"
 
     _leaflet = leaflet_template % {'POLYLINE':str(_polyline) }
 
-    _photos = _photos if len(_photos) > 1 else '> As said, none taken, too busy riding'
+    _photos = _photos if len(_photos) > 1 else 'No photos taken.'
     generated_markdown = post_template % {
-                        'ID':_summary['id'],
-                        'TITLE':_summary['name'],
-                        'DATE':_summary['start_date'],
-                        'ISDRAFT':'false',
-                        'CATS':'["MTB"]',
-                        'TAGS':'["rides", "mtb", "cycling", "bike"]',
-                        'RIDEIMG': _rideImg,
+                        'ID': _summary['id'],
+                        'TITLE': _summary['name'],
+                        'DATE': _summary['start_date'],
+                        'LASTMOD': datetime.now().strftime("%Y-%m-%d"),
+                        'ISDRAFT': 'false',
+                        'CATS': HUGO_CATS.get(_summary['sport_type'],"[]"),
+                        'TAGS': HUGO_TAGS.get(_summary['sport_type'],"[]"),
+                        'HEADERIMG': _headerImg,
                         'DISTANCE': _summary['distance_km'],
                         'ELE_GAIN': _summary['elevation_gain_m'],
-                        'TIME_MOV':_summary['moving_time'],
+                        'TIME_MOV': _summary['moving_time'],
                         'TIME_ELA': _summary['elapsed_time'],
                         'MAP': _leaflet,
                         'DESCR': _summary['description_parsed'],
-                        'PHOTOS':_photos,
+                        'PHOTOS': _photos,
     }
     return generated_markdown
 
@@ -564,7 +579,7 @@ def main(args):
     print(f"✅ Log in successful")
 
     # Ensure subfolder
-    os.makedirs("Rides", exist_ok=True)
+    os.makedirs("Activities", exist_ok=True)
 
     if args.since:
         timestamp=time.mktime(datetime.strptime(args.since, "%Y-%m-%d").timetuple())
@@ -592,7 +607,7 @@ def main(args):
             markdown_post = generate_markdown(_summary = summary,
                                             _polyline = poly_line,
                                             _photos = photos)
-            filename = f"Rides/{summary['start_date']}-{summary['id']}.md"
+            filename = f"Activities/{summary['start_date']}-{summary['id']}.md"
             save_markdown(_content=markdown_post, _fname=filename)
 
         else:
