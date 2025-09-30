@@ -13,7 +13,19 @@ import numpy as np
 import os
 import argparse, sys
 from config import OAUTH_CLIENT_ID, OAUTH_CLIENT_SECRET, OAUTH_CBACK_URL 
-from config import HOME_COORDINATES, HOME_OFFSET, FONT_PATH_REGULAR, FONT_PATH_BOLD
+from config import FONT_PATH_REGULAR, FONT_PATH_BOLD
+try:
+    from config import HOME_COORDINATES, HOME_OFFSET
+except ImportError:
+    HOME_COORDINATES = []
+    HOME_OFFSET = 0
+
+try:
+    from config import HUGO_CATS, HUGO_TAGS
+except ImportError:
+    HUGO_CATS = {}
+    HUGO_TAGS = {}
+    
 
 import math
 from PIL import Image, ImageFont, ImageDraw, ImageOps
@@ -196,6 +208,7 @@ def fetch_activity_data(activity_id):
         "location_country": data.get("location_country"),
         "description_parsed": (data.get("description") or "").replace('\r\n', '\n').strip(),
         "image": (((data.get("photos") or {}).get("primary") or {}).get("urls") or {}).get("600"),
+        "sport_type": data.get("sport_type"),
     }
 
     poly_line = _align_polyline(activity_id)
@@ -469,20 +482,21 @@ def generate_markdown(_summary, _photos, _polyline, _ftemplate='./templates/post
 
     _photos = _photos if len(_photos) > 1 else 'No photos taken, have had a wonderful time instead :)'
     generated_markdown = post_template % {
-                        'ID':_summary['id'],
-                        'TITLE':_summary['name'],
-                        'DATE':_summary['start_date'],
-                        'ISDRAFT':'false',
-                        'CATS':'["MTB"]',
-                        'TAGS':'["rides", "mtb", "cycling", "bike"]',
+                        'ID': _summary['id'],
+                        'TITLE': _summary['name'],
+                        'DATE': _summary['start_date'],
+                        'LASTMOD': datetime.now().strftime("%Y-%m-%d"),
+                        'ISDRAFT': 'false',
+                        'CATS': HUGO_CATS.get(_summary['sport_type'],"[]"),
+                        'TAGS': HUGO_TAGS.get(_summary['sport_type'],"[]"),
                         'HEADERIMG': _headerImg,
                         'DISTANCE': _summary['distance_km'],
                         'ELE_GAIN': _summary['elevation_gain_m'],
-                        'TIME_MOV':_summary['moving_time'],
+                        'TIME_MOV': _summary['moving_time'],
                         'TIME_ELA': _summary['elapsed_time'],
                         'MAP': _leaflet,
                         'DESCR': _summary['description_parsed'],
-                        'PHOTOS':_photos,
+                        'PHOTOS': _photos,
     }
     return generated_markdown
 

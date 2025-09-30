@@ -21,8 +21,15 @@ HOME_OFFSET = 1000
 
 #### Builder setup:
 
-# Your Hugo blog's home folder, optional
+# Your Hugo instance variables, optional
 HUGO_PATH = "/home/user/hugo_site/"
+# Strava sport type to tags/categories mapping, optional
+HUGO_CATS = {
+    'MountainBikeRide': '["MTB"]',
+}
+HUGO_TAGS = {
+    'MountainBikeRide': '["rides", "mtb", "cycling", "bike"]',
+}
 
 # Path to fonts, used for image overlay
 FONT_PATH_REGULAR = "./assets/fonts/Roboto-Regular.ttf"

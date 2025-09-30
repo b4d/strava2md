@@ -1,6 +1,7 @@
 ---
 title: "%(TITLE)s"
 date: "%(DATE)s"
+lastmod: "%(LASTMOD)s"
 draft: %(ISDRAFT)s
 categories: %(CATS)s
 tags: %(TAGS)s
@@ -39,4 +40,4 @@ tags: %(TAGS)s
 
 ---
 
-Data parsed automatically from [Strava](https://www.strava.com) using [Strava2.MD](https://github.com/b4d/strava2md) 
+Data parsed automatically from [Strava](https://www.strava.com) using [Strava2.md](https://github.com/b4d/strava2md) 
