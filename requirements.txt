@@ -3,3 +3,5 @@ polyline
 requests
 selenium
 Pillow
+mistune
+bs4
