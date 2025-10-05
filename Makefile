@@ -1,4 +1,5 @@
 PYTHON = $$(command -v python3)
+OPEN = $$(command -v xdg-open) || $$(command -v open)
 
 any:
 	@echo "run \"make env\" for creating test environment"
@@ -21,4 +22,4 @@ endif
 	@. venv/bin/activate && python3 stravaapi.py -i $$ACTIVITY_ID --descrlimit 1
 	@. venv/bin/activate && python3 utils/page2html.py --input Activities/*$$ACTIVITY_ID.md --output Activities/index.html 
 	@DIR=$$(find Activities/* -type d); mv Activities/index.html $$DIR/index.html
-	@xdg-open Activities/*/index.html
+	@FILE=$$(find Activities/*/index.html -type f); $(OPEN) $$FILE
