@@ -202,6 +202,7 @@ def fetch_activity_data(activity_id):
     data = response.json()
     activity_summary = {
         "id": activity_id,
+        "device_name": data.get("device_name", ""),
         "name": data.get("name"),
         "distance_km": round(data.get("distance", 0) / 1000, 2),
         "moving_time": str(timedelta(seconds=data.get("moving_time", 0))),
@@ -488,6 +489,11 @@ def generate_markdown(_summary, _photos, _polyline, _ftemplate='./templates/post
     _leaflet = leaflet_template % {'POLYLINE':str(_polyline) }
 
     _photos = _photos if len(_photos) > 1 else 'No photos taken.'
+
+    _disclamer = ""
+    if _summary['device_name'].lower().find('garmin') > -1: # device name contains Garmin?
+        _disclamer = "> The data, required to produce the activity, was aquired with the use of GARMIN hardware"
+    
     generated_markdown = post_template % {
                         'ID': _summary['id'],
                         'TITLE': _summary['name'],
@@ -504,6 +510,7 @@ def generate_markdown(_summary, _photos, _polyline, _ftemplate='./templates/post
                         'MAP': _leaflet,
                         'DESCR': _summary['description_parsed'],
                         'PHOTOS': _photos,
+                        'VENDORDISCLAMER': _disclamer,
     }
     return generated_markdown
 

@@ -41,3 +41,5 @@ tags: %(TAGS)s
 ---
 
 Data parsed automatically from [Strava](https://www.strava.com) using [Strava2.md](https://github.com/b4d/strava2md) 
+
+%(VENDORDISCLAMER)s
