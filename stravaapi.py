@@ -492,7 +492,7 @@ def generate_markdown(_summary, _photos, _polyline, _ftemplate='./templates/post
 
     _disclamer = ""
     if _summary['device_name'].lower().find('garmin') > -1: # device name contains Garmin?
-        _disclamer = "> The data, required to produce the activity, was acquired with the use of GARMIN hardware"
+        _disclamer = "> Data acquired with GARMIN hardware."
     
     generated_markdown = post_template % {
                         'ID': _summary['id'],
