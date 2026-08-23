@@ -7,3 +7,4 @@ config.py
 tmp/*
 Activities/*
 venv/
+.envrc
