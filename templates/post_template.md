@@ -17,7 +17,9 @@ tags: %(TAGS)s
 - **Moving Time:** %(TIME_MOV)s
 - **Elapsed Time:** %(TIME_ELA)s
 - [%(TITLE)s on Strava](https://www.strava.com/activities/%(ID)s)
+
 <!--more-->
+
 ---
 
 ## Map
