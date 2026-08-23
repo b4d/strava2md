@@ -139,28 +139,37 @@ def getStream(activity_id, keys, series_type='distance', resolution='high'):
         return {}
     return r.json()
 
-# Create MD links to all the photos on the activity
-def list_photos(activity_id, start_date):
+# Create MD links to all the photos on the activity and find the high-resolution
+# version of the primary photo for the generated header image.
+def list_photos(activity_id, start_date, primary_photo_id=None):
     photo_url = f"{STRAVA_API_ROOT}/activities/{activity_id}/photos?size=5000"
     response = requests.get(photo_url, headers=headers)
 
     if response.status_code == 200:
         photos = response.json()
         output = []
+        primary_photo_url = None
         if not os.path.exists(f"./Activities/{start_date}-{activity_id}/"):
             os.makedirs(f"./Activities/{start_date}-{activity_id}/")
 
         for i, photo in enumerate(photos, 1):
             url = photo.get("urls", {}).get("5000")
             if url:
+                if photo.get("unique_id") == primary_photo_id:
+                    primary_photo_url = url
                 img_data = requests.get(url).content
                 with open(f"./Activities/{start_date}-{activity_id}/photo_{i}.jpg", 'wb') as handler:
                     handler.write(img_data)
                 output.append(f"![Activity Image {i}](./photo_{i}.jpg)")
 
-        return "\n".join(output)
+        # Older responses may not expose a primary photo ID. Use the first
+        # activity photo as the best available high-resolution fallback.
+        if primary_photo_url is None and primary_photo_id is None and photos:
+            primary_photo_url = photos[0].get("urls", {}).get("5000")
+
+        return "\n".join(output), primary_photo_url
     else:
-        return f"⚠️ Error: {response.status_code} - {response.text}"
+        return f"⚠️ Error: {response.status_code} - {response.text}", None
 
 
 def fetch_activites(_since, _max_pages=10, _type='Ride'):
@@ -200,6 +209,7 @@ def fetch_activity_data(activity_id):
         return activity_id, -1, -1, -1
     
     data = response.json()
+    primary_photo = (data.get("photos") or {}).get("primary") or {}
     activity_summary = {
         "id": activity_id,
         "device_name": data.get("device_name", ""),
@@ -212,13 +222,21 @@ def fetch_activity_data(activity_id):
         "start_date": data.get("start_date")[:10] if data.get("start_date") else None,
         "location_country": data.get("location_country"),
         "description_parsed": (data.get("description") or "").replace('\r\n', '\n').strip(),
-        "image": (((data.get("photos") or {}).get("primary") or {}).get("urls") or {}).get("600"),
+        # The detailed activity response only provides a small primary image.
+        # list_photos() replaces this with its high-resolution counterpart.
+        "image": (primary_photo.get("urls") or {}).get("600"),
         "sport_type": data.get("sport_type"),
     }
 
     poly_line = _align_polyline(activity_id)
 
-    photos = list_photos(activity_id, activity_summary['start_date'])
+    photos, primary_photo_url = list_photos(
+        activity_id,
+        activity_summary['start_date'],
+        primary_photo.get("unique_id"),
+    )
+    if primary_photo_url:
+        activity_summary["image"] = primary_photo_url
     return activity_summary, poly_line, photos
 
 # Wrap title into one or two lines based on available width on the image overlay.
@@ -253,7 +271,8 @@ def draw_polyline_on_image(
     supersample=3,              # AA factor
     outline_color=(0,0,0,180),  # soft outline for contrast
     outline_extra=2,            # extra px around the main width for outline
-    domain_pad=0.02             # expand bounds (~2%) to avoid edge mapping
+    domain_pad=0.02,            # expand bounds (~2%) to avoid edge mapping
+    smooth_passes=2             # soften small GPS zigzags in the header only
 ):
     """Render a route with correct aspect by projecting lat/lon to Web-Mercator
     and fitting it into a smaller box anchored inside the image, with padding to
@@ -334,6 +353,21 @@ def draw_polyline_on_image(
 
     path = [to_px(x, y) for x, y in zip(mx, my)]
 
+    # Apply a light [1, 2, 1] filter to the rendered path. This removes small
+    # point-to-point GPS jitter without changing the source polyline used by
+    # the map or moving the route's start and finish points.
+    for _ in range(max(0, int(smooth_passes))):
+        if len(path) < 3:
+            break
+        smoothed_path = [path[0]]
+        for previous, current, following in zip(path, path[1:], path[2:]):
+            smoothed_path.append((
+                (previous[0] + 2 * current[0] + following[0]) / 4.0,
+                (previous[1] + 2 * current[1] + following[1]) / 4.0,
+            ))
+        smoothed_path.append(path[-1])
+        path = smoothed_path
+
     # Optional soft outline for visibility on busy photos
     if outline_extra > 0:
         odraw.line(path, fill=outline_color, width=width*ss + 2*outline_extra, joint="curve")
@@ -354,9 +388,6 @@ def hhmmss_to_hhmm(s: str) -> str:
     return f"{h}h {m}m"
 
 def overlayify_image(_image, _title, _date, _distance, _elevation, _moving, poly_line=None):
-
-    margin = 40  # global margin from edge
-
     # Work in RGBA so we can blend an icon with transparency
     img = Image.open(io.BytesIO(_image)).convert("RGBA")
 
@@ -367,11 +398,22 @@ def overlayify_image(_image, _title, _date, _distance, _elevation, _moving, poly
     w, h = img.size
     draw = ImageDraw.Draw(img)
 
+    # The original overlay was designed around Strava's 600px image. Scale
+    # every pixel-based measurement together for larger source photos.
+    layout_scale = max(w, h) / 600.0
+
+    def scaled_px(value, minimum=1):
+        return max(minimum, int(round(value * layout_scale)))
+
+    margin = scaled_px(40)
+
     # Font sizes
     maxsize = min(w, h) / 12
-    fontTitle   = ImageFont.truetype(FONT_PATH_BOLD, int(2/3.0*maxsize - 1))
-    fontSubject = ImageFont.truetype(FONT_PATH_REGULAR, int(maxsize/2 - 5))
-    fontData    = ImageFont.truetype(FONT_PATH_BOLD, int(2/3.0*maxsize - 1))
+    title_font_size = max(1, int(round(2/3.0 * maxsize - layout_scale)))
+    subject_font_size = max(1, int(round(maxsize/2 - 5 * layout_scale)))
+    fontTitle   = ImageFont.truetype(FONT_PATH_BOLD, title_font_size)
+    fontSubject = ImageFont.truetype(FONT_PATH_REGULAR, subject_font_size)
+    fontData    = ImageFont.truetype(FONT_PATH_BOLD, title_font_size)
 
     # Darken the image
     overlay = Image.new("RGBA", img.size, (0, 0, 0, 100))  # alpha = 120 (~50% dark)
@@ -386,27 +428,40 @@ def overlayify_image(_image, _title, _date, _distance, _elevation, _moving, poly
 
     # --- Polyline on image (only if provided & non-empty) ---
     if poly_line:
-        draw_polyline_on_image(draw, poly_line, w, h, width=5, anchor="topmiddle", margin=40, scale=0.7, outline_extra=0)
+        # The old 600px source image used a 5px route stroke. Keep that same
+        # visual weight when Strava provides a much larger source image.
+        route_width = scaled_px(5, minimum=5)
+        draw_polyline_on_image(
+            draw,
+            poly_line,
+            w,
+            h,
+            width=route_width,
+            anchor="topmiddle",
+            margin=margin,
+            scale=0.8,
+            outline_extra=0,
+        )
 
     # --- Bottom stats reference ---
-    stats_y_top = int(7/8.0 * h - 15)   # where you draw "Distance"
+    stats_y_top = int(7/8.0 * h - scaled_px(15))
 
     # --- Title wrapping ---
     max_width = w - margin*2
     wrapped = wrap_title(draw, _title, fontTitle, max_width)
 
     # Height of title block (all lines)
-    line_height = int(maxsize * 1.2)
+    line_height = max(1, int(round(maxsize * 1.2)))
     title_block_height = len(wrapped) * line_height
 
-    # Place title so its bottom is 20px above stats
-    y_start = stats_y_top - title_block_height - 20
+    # Place title above the statistics with resolution-independent spacing.
+    y_start = stats_y_top - title_block_height - scaled_px(20)
 
     # --- Icon above title ---
     icon = Image.open("assets/icons/icon-mtb.png").convert("RGBA")
-    icon = icon.resize((int(2/3.0*maxsize - 1), int(2/3.0*maxsize - 1)))
+    icon = icon.resize((title_font_size, title_font_size))
     icon_x = margin
-    icon_y = y_start - icon.height - 10
+    icon_y = y_start - icon.height - scaled_px(10)
     img.paste(icon, (icon_x, icon_y), icon)
 
     # --- Draw wrapped title ---
@@ -416,8 +471,8 @@ def overlayify_image(_image, _title, _date, _distance, _elevation, _moving, poly
 
 
     # --- Bottom stats ---
-    bottom_y_label = int(7/8.0 * h - 15)
-    bottom_y_value = int(7/8.0 * h + 15)
+    bottom_y_label = int(7/8.0 * h - scaled_px(15))
+    bottom_y_value = int(7/8.0 * h + scaled_px(15))
 
     inner_w = w - 2*margin
     col_w = inner_w / 3.0
@@ -435,7 +490,7 @@ def overlayify_image(_image, _title, _date, _distance, _elevation, _moving, poly
     draw.text((x_left + val_w/2 - label_w/2, bottom_y_label), label, (255,255,255,255), font=fontSubject)
 
     # Elev Gain (value centered, label centered above)
-    val_elev = f"{_elevation}".rstrip("0").rstrip(".") + " m"
+    val_elev = f"{_elevation:g} m"
     val_w = draw.textlength(val_elev, font=fontData)
     label = "Elev Gain"
     label_w = draw.textlength(label, font=fontSubject)
@@ -659,4 +714,3 @@ if __name__ == "__main__":
     if args.verbose:
         VERBOSE=True
     main(args)
-
