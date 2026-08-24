@@ -41,7 +41,7 @@ except ImportError:
     HUGO_TAGS = {}
 
 
-oauthcode = "" 
+oauthcode = ""
 access_token = ""
 headers = ""
 
@@ -207,7 +207,7 @@ def fetch_activity_data(activity_id):
     if response.status_code != 200:
         print(f"⚠️ Failed to fetch activity {activity_id} Error: {response.status_code} - {response.text}")
         return activity_id, -1, -1, -1
-    
+
     data = response.json()
     primary_photo = (data.get("photos") or {}).get("primary") or {}
     activity_summary = {
@@ -499,7 +499,7 @@ def overlayify_image(_image, _title, _date, _distance, _elevation, _moving, poly
 
     # Time (value right, label centered above it)
     val_time = f"{_moving}"
-    val_time = hhmmss_to_hhmm(val_time) 
+    val_time = hhmmss_to_hhmm(val_time)
     val_w = draw.textlength(val_time, font=fontData)
     label = "Time"
     label_w = draw.textlength(label, font=fontSubject)
@@ -548,7 +548,7 @@ def generate_markdown(_summary, _photos, _polyline, _ftemplate='./templates/post
     _disclamer = ""
     if _summary['device_name'].lower().find('garmin') > -1: # device name contains Garmin?
         _disclamer = "> Data acquired with GARMIN hardware."
-    
+
     generated_markdown = post_template % {
                         'ID': _summary['id'],
                         'TITLE': _summary['name'],
@@ -631,7 +631,7 @@ def main(args):
             print(f"⚠️ Failed retrieving auth token")
     else:
         access_token = strava_oauth2(_cid=OAUTH_CLIENT_ID, _secret=OAUTH_CLIENT_SECRET, _cbackurl=OAUTH_CBACK_URL)
-        with open('.auth','w') as f: 
+        with open('.auth','w') as f:
             f.write(access_token)
             f.close()
         print(f"✅ Auth token stored sucessfully")
