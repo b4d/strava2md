@@ -31,8 +31,9 @@ HUGO_TAGS = {
     'MountainBikeRide': '["rides", "mtb", "cycling", "bike"]',
 }
 
-# Path to fonts, used for image overlay
-FONT_PATH_REGULAR = "./assets/fonts/Roboto-Regular.ttf"
-FONT_PATH_BOLD = "./assets/fonts/Roboto-Bold.ttf"
+# Path to fonts, used for image overlay. Source Sans 3 is a single variable
+# font; the Regular/Bold weights are selected at runtime (see stravaapi.py).
+FONT_PATH_REGULAR = "./assets/fonts/SourceSans3-Variable.ttf"
+FONT_PATH_BOLD = "./assets/fonts/SourceSans3-Variable.ttf"
 
 VERBOSE=False

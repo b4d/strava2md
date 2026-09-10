@@ -239,6 +239,20 @@ def fetch_activity_data(activity_id):
         activity_summary["image"] = primary_photo_url
     return activity_summary, poly_line, photos
 
+# Load a font at a given weight. Variable fonts (e.g. Source Sans 3) ship
+# Regular/Bold as named instances of a single file rather than separate files;
+# static fonts (e.g. Roboto's per-weight .ttf files) simply ignore the request.
+def load_font(path, size, weight_name):
+    font = ImageFont.truetype(path, size)
+    try:
+        names = font.get_variation_names()
+    except OSError:
+        return font
+    weight_bytes = weight_name.encode()
+    if weight_bytes in names:
+        font.set_variation_by_name(weight_bytes)
+    return font
+
 # Wrap title into one or two lines based on available width on the image overlay.
 def wrap_title(draw, text, font, max_width):
     """Wrap title into one or two lines based on available width."""
@@ -467,9 +481,9 @@ def overlayify_image(_image, _title, _date, _distance, _elevation, _moving, poly
     maxsize = min(w, h) / 12
     title_font_size = max(1, int(round(2/3.0 * maxsize - layout_scale)))
     subject_font_size = max(1, int(round(maxsize/2 - 5 * layout_scale)))
-    fontTitle   = ImageFont.truetype(FONT_PATH_BOLD, title_font_size)
-    fontSubject = ImageFont.truetype(FONT_PATH_REGULAR, subject_font_size)
-    fontData    = ImageFont.truetype(FONT_PATH_BOLD, title_font_size)
+    fontTitle   = load_font(FONT_PATH_BOLD, title_font_size, "Bold")
+    fontSubject = load_font(FONT_PATH_REGULAR, subject_font_size, "Regular")
+    fontData    = load_font(FONT_PATH_BOLD, title_font_size, "Bold")
 
     # Darken the image
     overlay = Image.new("RGBA", img.size, (0, 0, 0, 100))  # alpha = 120 (~50% dark)
@@ -499,68 +513,79 @@ def overlayify_image(_image, _title, _date, _distance, _elevation, _moving, poly
             outline_extra=0,
         )
 
-    # --- Bottom stats reference ---
-    stats_y_top = int(7/8.0 * h - scaled_px(15))
+    # --- Bottom stats ---
+    # Anchor the value's visual (glyph) bottom to a fixed line, then stack the
+    # label directly above the value's visual (glyph) top with a small, fixed
+    # gap. Text draw coordinates are the top of the font's em-box, which
+    # includes ascender whitespace the glyphs don't actually use, so anchoring
+    # by measured bbox rather than by draw position keeps the label close to
+    # the value regardless of how tall each font's box happens to be.
+    value_bottom_y = int(7/8.0 * h + scaled_px(28))
+    label_value_gap = scaled_px(6)
+
+    def draw_stat(value_x_for_bbox, value, label, align):
+        val_bbox = draw.textbbox((0, 0), value, font=fontData)
+        label_bbox = draw.textbbox((0, 0), label, font=fontSubject)
+        val_w = val_bbox[2] - val_bbox[0]
+        label_w = label_bbox[2] - label_bbox[0]
+
+        if align == "left":
+            val_x = value_x_for_bbox
+        elif align == "right":
+            val_x = value_x_for_bbox - val_w
+        else:
+            val_x = value_x_for_bbox - val_w / 2
+        label_x = val_x + val_w / 2 - label_w / 2
+
+        val_y = value_bottom_y - val_bbox[3]
+        label_y = val_y + val_bbox[1] - label_value_gap - label_bbox[3]
+
+        draw.text((val_x, val_y), value, (255, 255, 255, 255), font=fontData)
+        draw.text((label_x, label_y), label, (255, 255, 255, 255), font=fontSubject)
+
+        return label_y + label_bbox[1]  # visual (glyph) top of the label
+
+    inner_w = w - 2*margin
+    x_left   = margin                   # left column anchor
+    x_center = margin + inner_w/2       # middle column anchor
+    x_right  = w - margin               # right column anchor
+
+    label_tops = [
+        draw_stat(x_left, f"{_distance} km", "Distance", align="left"),
+        draw_stat(x_center, f"{_elevation:g} m", "Elev Gain", align="center"),
+        draw_stat(x_right, hhmmss_to_hhmm(f"{_moving}"), "Time", align="right"),
+    ]
+    stats_visual_top = min(label_tops)
 
     # --- Title wrapping ---
+    # A single line sits low, right above the stats; a wrapped, two-line
+    # title needs the extra line's worth of room and is pushed up to fit,
+    # while its second line still lands in that same low spot.
     max_width = w - margin*2
     wrapped = wrap_title(draw, _title, fontTitle, max_width)
+    n_lines = len(wrapped)
 
-    # Height of title block (all lines)
-    line_height = max(1, int(round(maxsize * 1.2)))
-    title_block_height = len(wrapped) * line_height
+    ascent, descent = fontTitle.getmetrics()
+    line_pitch = ascent + descent
+    line_bboxes = [draw.textbbox((0, 0), line, font=fontTitle) for line in wrapped]
 
-    # Place title above the statistics with resolution-independent spacing.
-    y_start = stats_y_top - title_block_height - scaled_px(20)
+    title_gap = scaled_px(20)
+    # Bottom of the last line's glyphs, measured from the top of its own line box.
+    last_line_glyph_bottom = line_bboxes[-1][3]
+    last_line_top = stats_visual_top - title_gap - last_line_glyph_bottom
+    block_top = last_line_top - (n_lines - 1) * line_pitch
 
     # --- Icon above title ---
     icon = Image.open("assets/icons/icon-mtb.png").convert("RGBA")
     icon = icon.resize((title_font_size, title_font_size))
     icon_x = margin
-    icon_y = y_start - icon.height - scaled_px(10)
+    icon_y = block_top + line_bboxes[0][1] - icon.height - scaled_px(10)
     img.paste(icon, (icon_x, icon_y), icon)
 
     # --- Draw wrapped title ---
     for i, line in enumerate(wrapped):
-        draw.text((margin, y_start + i*line_height), line,
+        draw.text((margin, block_top + i*line_pitch), line,
                   (255,255,255,255), font=fontTitle)
-
-
-    # --- Bottom stats ---
-    bottom_y_label = int(7/8.0 * h - scaled_px(15))
-    bottom_y_value = int(7/8.0 * h + scaled_px(15))
-
-    inner_w = w - 2*margin
-    col_w = inner_w / 3.0
-
-    x_left   = margin                   # left column anchor
-    x_center = margin + inner_w/2       # middle column anchor
-    x_right  = w - margin               # right column anchor
-
-    # Distance (value left, label centered above it)
-    val_dist = f"{_distance} km"
-    val_w = draw.textlength(val_dist, font=fontData)
-    label = "Distance"
-    label_w = draw.textlength(label, font=fontSubject)
-    draw.text((x_left, bottom_y_value), val_dist, (255,255,255,255), font=fontData)
-    draw.text((x_left + val_w/2 - label_w/2, bottom_y_label), label, (255,255,255,255), font=fontSubject)
-
-    # Elev Gain (value centered, label centered above)
-    val_elev = f"{_elevation:g} m"
-    val_w = draw.textlength(val_elev, font=fontData)
-    label = "Elev Gain"
-    label_w = draw.textlength(label, font=fontSubject)
-    draw.text((x_center - val_w/2, bottom_y_value), val_elev, (255,255,255,255), font=fontData)
-    draw.text((x_center - label_w/2, bottom_y_label), label, (255,255,255,255), font=fontSubject)
-
-    # Time (value right, label centered above it)
-    val_time = f"{_moving}"
-    val_time = hhmmss_to_hhmm(val_time)
-    val_w = draw.textlength(val_time, font=fontData)
-    label = "Time"
-    label_w = draw.textlength(label, font=fontSubject)
-    draw.text((x_right - val_w, bottom_y_value), val_time, (255,255,255,255), font=fontData)
-    draw.text((x_right - val_w/2 - label_w/2, bottom_y_label), label, (255,255,255,255), font=fontSubject)
 
 
     # Flatten to RGB for JPEG (preserves icon edges by compositing with a solid bg)
