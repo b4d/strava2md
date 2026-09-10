@@ -48,6 +48,11 @@ make test # wipes the Activities folder and fetches the activity
  - https://b4d.sablun.org/blog/activities/2025-09-20-15877521879/
 
 
+## Credits
+
+ - The Distance/Elevation/Time stat icons are from [Phosphor Icons](https://phosphoricons.com).
+
+
 ## Disclaimer
 
 The testing suite that is a part of this project uses the [mistune library](https://github.com/lepture/mistune) for parsing markdown into html. Disclamer below:

@@ -15,7 +15,7 @@ import argparse, sys
 
 # Imaging workflow
 import math
-from PIL import Image, ImageFont, ImageDraw, ImageOps
+from PIL import Image, ImageFont, ImageDraw, ImageOps, ImageFilter
 import io
 
 # OAuth workflow
@@ -480,9 +480,7 @@ def overlayify_image(_image, _title, _date, _distance, _elevation, _moving, poly
     # Font sizes
     maxsize = min(w, h) / 12
     title_font_size = max(1, int(round(2/3.0 * maxsize - layout_scale)))
-    subject_font_size = max(1, int(round(maxsize/2 - 5 * layout_scale)))
     fontTitle   = load_font(FONT_PATH_BOLD, title_font_size, "Bold")
-    fontSubject = load_font(FONT_PATH_REGULAR, subject_font_size, "Regular")
     fontData    = load_font(FONT_PATH_BOLD, title_font_size, "Bold")
 
     # Darken the image
@@ -490,11 +488,6 @@ def overlayify_image(_image, _title, _date, _distance, _elevation, _moving, poly
     img = img.convert("RGBA")
     img = Image.alpha_composite(img, overlay)
     draw = ImageDraw.Draw(img)
-
-
-    # Text (use 4-tuple RGBA color)
-    # draw.text((20, 20), "GH://b4d/strava2md", (255, 255, 255, 255), font=fontSubject)
-    # draw.text((w - 150, 20), _date, (255, 255, 255, 255), font=fontSubject)
 
     # --- Polyline on image (only if provided & non-empty) ---
     if poly_line:
@@ -514,48 +507,57 @@ def overlayify_image(_image, _title, _date, _distance, _elevation, _moving, poly
         )
 
     # --- Bottom stats ---
-    # Anchor the value's visual (glyph) bottom to a fixed line, then stack the
-    # label directly above the value's visual (glyph) top with a small, fixed
-    # gap. Text draw coordinates are the top of the font's em-box, which
-    # includes ascender whitespace the glyphs don't actually use, so anchoring
-    # by measured bbox rather than by draw position keeps the label close to
-    # the value regardless of how tall each font's box happens to be.
+    # Anchor each value's visual (glyph) bottom to a fixed line, and draw an
+    # icon inline in front of it, sized and vertically centered to the
+    # value's own glyph height (rather than its font's full em-box, which has
+    # empty ascender/descender space the icon doesn't need).
     value_bottom_y = int(7/8.0 * h + scaled_px(28))
-    label_value_gap = scaled_px(6)
+    icon_gap = scaled_px(10)
+    icon_paths = {
+        "distance": "assets/icons/icon-distance.png",
+        "elevation": "assets/icons/icon-elevation.png",
+        "time": "assets/icons/icon-time.png",
+    }
 
-    def draw_stat(value_x_for_bbox, value, label, align):
+    def draw_stat(value_x_for_bbox, value, icon_key, align):
         val_bbox = draw.textbbox((0, 0), value, font=fontData)
-        label_bbox = draw.textbbox((0, 0), label, font=fontSubject)
         val_w = val_bbox[2] - val_bbox[0]
-        label_w = label_bbox[2] - label_bbox[0]
+        val_h = val_bbox[3] - val_bbox[1]
 
+        # Dilate at the source resolution (before downscaling) for a slightly
+        # bolder stroke than the raw icon, matching the activity icon's size.
+        icon = Image.open(icon_paths[icon_key]).convert("RGBA")
+        icon = icon.filter(ImageFilter.MaxFilter(5))
+        icon = icon.resize((title_font_size, title_font_size), Image.LANCZOS)
+
+        total_w = icon.width + icon_gap + val_w
         if align == "left":
-            val_x = value_x_for_bbox
+            start_x = value_x_for_bbox
         elif align == "right":
-            val_x = value_x_for_bbox - val_w
+            start_x = value_x_for_bbox - total_w
         else:
-            val_x = value_x_for_bbox - val_w / 2
-        label_x = val_x + val_w / 2 - label_w / 2
+            start_x = value_x_for_bbox - total_w / 2
 
         val_y = value_bottom_y - val_bbox[3]
-        label_y = val_y + val_bbox[1] - label_value_gap - label_bbox[3]
+        val_x = start_x + icon.width + icon_gap
+        icon_y = val_y + val_bbox[1] + (val_h - icon.height) // 2
 
+        img.paste(icon, (int(start_x), int(icon_y)), icon)
         draw.text((val_x, val_y), value, (255, 255, 255, 255), font=fontData)
-        draw.text((label_x, label_y), label, (255, 255, 255, 255), font=fontSubject)
 
-        return label_y + label_bbox[1]  # visual (glyph) top of the label
+        return min(icon_y, val_y + val_bbox[1])  # visual top of the icon+value row
 
     inner_w = w - 2*margin
     x_left   = margin                   # left column anchor
     x_center = margin + inner_w/2       # middle column anchor
     x_right  = w - margin               # right column anchor
 
-    label_tops = [
-        draw_stat(x_left, f"{_distance} km", "Distance", align="left"),
-        draw_stat(x_center, f"{_elevation:g} m", "Elev Gain", align="center"),
-        draw_stat(x_right, hhmmss_to_hhmm(f"{_moving}"), "Time", align="right"),
+    row_tops = [
+        draw_stat(x_left, f"{_distance} km", "distance", align="left"),
+        draw_stat(x_center, f"{_elevation:g} m", "elevation", align="center"),
+        draw_stat(x_right, hhmmss_to_hhmm(f"{_moving}"), "time", align="right"),
     ]
-    stats_visual_top = min(label_tops)
+    stats_visual_top = min(row_tops)
 
     # --- Title wrapping ---
     # A single line sits low, right above the stats; a wrapped, two-line
