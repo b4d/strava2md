@@ -258,6 +258,44 @@ def wrap_title(draw, text, font, max_width):
             break
     return [line1, line2] if line2 else [line1]
 
+# Iterative Ramer-Douglas-Peucker simplification. Used after smoothing to drop
+# near-collinear points; PIL's round-jointed stroke otherwise renders a
+# visible bump at every vertex, which shows up as a toothed/notched edge when
+# thousands of points are packed into a small line.
+def simplify_path(points, epsilon):
+    if len(points) < 3 or epsilon <= 0:
+        return points
+
+    keep = [False] * len(points)
+    keep[0] = keep[-1] = True
+    stack = [(0, len(points) - 1)]
+
+    while stack:
+        start, end = stack.pop()
+        sx, sy = points[start]
+        ex, ey = points[end]
+        dx, dy = ex - sx, ey - sy
+        norm = math.hypot(dx, dy)
+
+        max_dist = -1.0
+        max_idx = -1
+        for i in range(start + 1, end):
+            px, py = points[i]
+            if norm == 0:
+                dist = math.hypot(px - sx, py - sy)
+            else:
+                dist = abs(dy * px - dx * py + ex * sy - ey * sx) / norm
+            if dist > max_dist:
+                max_dist = dist
+                max_idx = i
+
+        if max_idx != -1 and max_dist > epsilon:
+            keep[max_idx] = True
+            stack.append((start, max_idx))
+            stack.append((max_idx, end))
+
+    return [p for p, k in zip(points, keep) if k]
+
 # Draw polyline on overlay image (clipping-safe)
 def draw_polyline_on_image(
     draw,
@@ -272,7 +310,8 @@ def draw_polyline_on_image(
     outline_color=(0,0,0,180),  # soft outline for contrast
     outline_extra=2,            # extra px around the main width for outline
     domain_pad=0.02,            # expand bounds (~2%) to avoid edge mapping
-    smooth_passes=2             # soften small GPS zigzags in the header only
+    smooth_window_px=10,        # low-pass window (final-image px) to remove GPS jitter
+    simplify_tolerance_px=0.6   # RDP tolerance (final-image px) to drop redundant joints
 ):
     """Render a route with correct aspect by projecting lat/lon to Web-Mercator
     and fitting it into a smaller box anchored inside the image, with padding to
@@ -353,20 +392,37 @@ def draw_polyline_on_image(
 
     path = [to_px(x, y) for x, y in zip(mx, my)]
 
-    # Apply a light [1, 2, 1] filter to the rendered path. This removes small
-    # point-to-point GPS jitter without changing the source polyline used by
-    # the map or moving the route's start and finish points.
-    for _ in range(max(0, int(smooth_passes))):
-        if len(path) < 3:
-            break
-        smoothed_path = [path[0]]
-        for previous, current, following in zip(path, path[1:], path[2:]):
-            smoothed_path.append((
-                (previous[0] + 2 * current[0] + following[0]) / 4.0,
-                (previous[1] + 2 * current[1] + following[1]) / 4.0,
-            ))
-        smoothed_path.append(path[-1])
-        path = smoothed_path
+    # High-resolution streams pack points far denser than the visible jitter
+    # in the GPS fix itself (multi-meter noise, worse under tree canopy/hills).
+    # Resample to even arc-length spacing so a pixel-sized window means the
+    # same thing regardless of point density, then apply a wide moving-average
+    # low-pass filter. This only affects the header-image rendering, not the
+    # source polyline used for the Leaflet map or the route's start/finish.
+    if len(path) >= 3 and smooth_window_px > 0:
+        xs = np.array([p[0] for p in path], dtype=float)
+        ys = np.array([p[1] for p in path], dtype=float)
+        seg_len = np.hypot(np.diff(xs), np.diff(ys))
+        cum = np.concatenate([[0.0], np.cumsum(seg_len)])
+        total = cum[-1]
+        step_px = 2.0 * ss
+        if total > step_px:
+            n = max(3, int(total // step_px))
+            targets = np.linspace(0, total, n)
+            xs = np.interp(targets, cum, xs)
+            ys = np.interp(targets, cum, ys)
+
+            window = max(1, int(round((smooth_window_px * ss) / step_px)))
+            if window >= 2:
+                kernel = np.ones(window) / window
+                pad = window // 2
+                xs = np.convolve(np.pad(xs, pad, mode='edge'), kernel, mode='same')[pad:pad+len(xs)]
+                ys = np.convolve(np.pad(ys, pad, mode='edge'), kernel, mode='same')[pad:pad+len(ys)]
+            path = list(zip(xs.tolist(), ys.tolist()))
+
+    # Drop near-collinear points left over from smoothing. Without this, PIL
+    # still renders a tiny round joint at every one of the (still numerous)
+    # points, which reads as a toothed edge once the stroke is drawn thick.
+    path = simplify_path(path, simplify_tolerance_px * ss)
 
     # Optional soft outline for visibility on busy photos
     if outline_extra > 0:
