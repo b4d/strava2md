@@ -455,7 +455,7 @@ def draw_polyline_on_image(
 
 def hhmmss_to_hhmm(s: str) -> str:
     h, m, _ = (int(x) for x in s.split(":"))
-    return f"{h}h {m}m"
+    return f"{m}m" if h == 0 else f"{h}h {m}m"
 
 def overlayify_image(_image, _title, _date, _distance, _elevation, _moving, poly_line=None):
     # Work in RGBA so we can blend an icon with transparency
@@ -507,55 +507,87 @@ def overlayify_image(_image, _title, _date, _distance, _elevation, _moving, poly
         )
 
     # --- Bottom stats ---
-    # Anchor each value's visual (glyph) bottom to a fixed line, and draw an
-    # icon inline in front of it, sized and vertically centered to the
-    # value's own glyph height (rather than its font's full em-box, which has
-    # empty ascender/descender space the icon doesn't need).
+    # Icon stacked above its value, each column centered on the wider of the
+    # two. Unlike an inline icon+value pairing, a column's width is driven
+    # almost entirely by the value text (the icon is rarely wider), so this
+    # keeps the numbers at full size on narrow (portrait) photos instead of
+    # needing to shrink them to avoid the three columns overlapping.
     value_bottom_y = int(7/8.0 * h + scaled_px(28))
-    icon_gap = scaled_px(10)
+    icon_value_gap = scaled_px(8)
     icon_paths = {
         "distance": "assets/icons/icon-distance.png",
         "elevation": "assets/icons/icon-elevation.png",
         "time": "assets/icons/icon-time.png",
     }
+    stat_values = {
+        "distance": f"{_distance} km",
+        "elevation": f"{_elevation:g} m",
+        "time": hhmmss_to_hhmm(f"{_moving}"),
+    }
+    inner_w = w - 2*margin
+    min_gap = scaled_px(20)
+    stats_font_floor = scaled_px(14)
 
-    def draw_stat(value_x_for_bbox, value, icon_key, align):
-        val_bbox = draw.textbbox((0, 0), value, font=fontData)
-        val_w = val_bbox[2] - val_bbox[0]
-        val_h = val_bbox[3] - val_bbox[1]
+    def measure_all(font_size, font):
+        measurements = {}
+        total = 0
+        for key, value in stat_values.items():
+            bbox = draw.textbbox((0, 0), value, font=font)
+            val_w = bbox[2] - bbox[0]
+            col_w = max(font_size, val_w)
+            measurements[key] = (bbox, val_w, col_w)
+            total += col_w
+        return measurements, total
+
+    # Icons/text default to the activity icon's size; shrink them just enough
+    # to fit if the three columns would otherwise be wider than the image
+    # (very narrow photos, or unusually long values). One proportional pass
+    # gets very close since text width scales almost linearly with font size.
+    stats_font_size = title_font_size
+    fontStats = fontData
+    stat_measurements, total_content = measure_all(stats_font_size, fontStats)
+    required = total_content + 2 * min_gap
+    if required > inner_w and stats_font_size > stats_font_floor:
+        scale = inner_w / required
+        stats_font_size = max(stats_font_floor, int(stats_font_size * scale))
+        fontStats = load_font(FONT_PATH_BOLD, stats_font_size, "Bold")
+        stat_measurements, total_content = measure_all(stats_font_size, fontStats)
+
+    def draw_stat(start_x, icon_key):
+        val_bbox, val_w, col_w = stat_measurements[icon_key]
+        value = stat_values[icon_key]
 
         # Dilate at the source resolution (before downscaling) for a slightly
         # bolder stroke than the raw icon, matching the activity icon's size.
         icon = Image.open(icon_paths[icon_key]).convert("RGBA")
         icon = icon.filter(ImageFilter.MaxFilter(5))
-        icon = icon.resize((title_font_size, title_font_size), Image.LANCZOS)
-
-        total_w = icon.width + icon_gap + val_w
-        if align == "left":
-            start_x = value_x_for_bbox
-        elif align == "right":
-            start_x = value_x_for_bbox - total_w
-        else:
-            start_x = value_x_for_bbox - total_w / 2
+        icon = icon.resize((stats_font_size, stats_font_size), Image.LANCZOS)
 
         val_y = value_bottom_y - val_bbox[3]
-        val_x = start_x + icon.width + icon_gap
-        icon_y = val_y + val_bbox[1] + (val_h - icon.height) // 2
+        val_x = start_x + col_w/2 - val_w/2 - val_bbox[0]
+        icon_x = start_x + col_w/2 - icon.width/2
+        icon_y = (val_y + val_bbox[1]) - icon_value_gap - icon.height
 
-        img.paste(icon, (int(start_x), int(icon_y)), icon)
-        draw.text((val_x, val_y), value, (255, 255, 255, 255), font=fontData)
+        img.paste(icon, (int(icon_x), int(icon_y)), icon)
+        draw.text((val_x, val_y), value, (255, 255, 255, 255), font=fontStats)
 
-        return min(icon_y, val_y + val_bbox[1])  # visual top of the icon+value row
+        return icon_y  # visual top of the icon+value column
 
-    inner_w = w - 2*margin
-    x_left   = margin                   # left column anchor
-    x_center = margin + inner_w/2       # middle column anchor
-    x_right  = w - margin               # right column anchor
+    # Three columns placed left-to-right, each starting after the previous
+    # one's end plus a gap. Chaining them this way (rather than right-
+    # anchoring the last column independently) guarantees they can never
+    # overlap, even if the shrink pass above doesn't get an exact fit.
+    flex_gap = (inner_w - total_content) / 2
+    gap = max(min_gap, flex_gap)
+
+    x_dist = margin
+    x_elev = x_dist + stat_measurements["distance"][2] + gap
+    x_time = x_elev + stat_measurements["elevation"][2] + gap
 
     row_tops = [
-        draw_stat(x_left, f"{_distance} km", "distance", align="left"),
-        draw_stat(x_center, f"{_elevation:g} m", "elevation", align="center"),
-        draw_stat(x_right, hhmmss_to_hhmm(f"{_moving}"), "time", align="right"),
+        draw_stat(x_dist, "distance"),
+        draw_stat(x_elev, "elevation"),
+        draw_stat(x_time, "time"),
     ]
     stats_visual_top = min(row_tops)
 
