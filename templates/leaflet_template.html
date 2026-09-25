@@ -4,16 +4,93 @@
  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
      integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
      crossorigin="" ></script>
-<script src="https://unpkg.com/leaflet-polylinedecorator@1.6.0/dist/leaflet.polylineDecorator.js"></script>
 
 <script src=" https://cdn.jsdelivr.net/npm/leaflet.heightgraph@1.4.0/dist/L.Control.Heightgraph.min.js "></script>
 <link href=" https://cdn.jsdelivr.net/npm/leaflet.heightgraph@1.4.0/dist/L.Control.Heightgraph.min.css " rel="stylesheet">
 
 <div id="plots_parent">
   <div id="map_div"></div>
+  <div id="map_hint" class="map-hint">Tap map to interact</div>
+  <div id="elevation_div"></div>
 </div>
 <style>
-    #map_div { width: 656px; height: 656px; max-width: 90vw; max-height: 45vh; margin: 5px auto;}
+    /* Shared so the map and the elevation graph below it always round to
+       the same amount, however either one's corner radius changes later.
+       Matches the theme's `p img` rule (assets/css/main.css) so the map
+       doesn't look more rounded than the activity's own photos. */
+    #plots_parent { --activity-radius: 4px; width: 100%%; max-width: 656px; margin: 0 auto; position: relative; }
+    /* Shown only on mobile (see the dragging.disable() block below), for as
+       long as one-finger panning is disabled - otherwise a swipe that just
+       scrolls the page instead of moving the map looks broken with no clue
+       why. Positioned as a sibling of #map_div, later in the DOM, so it
+       paints on top of the whole map without needing Leaflet-internal panes. */
+    .map-hint {
+        position: absolute;
+        left: 50%%;
+        bottom: 14px;
+        transform: translateX(-50%%);
+        background: rgba(38, 38, 38, 0.85);
+        color: #E8E8E3;
+        padding: 5px 12px;
+        border-radius: 999px;
+        font-size: 12px;
+        pointer-events: none;
+        opacity: 0;
+        transition: opacity 0.25s ease;
+    }
+    .map-hint.visible { opacity: 1; }
+    /* A single responsive square instead of independent vw/vh caps, which
+       could stretch the map into an inconsistent shape depending on the
+       phone's aspect ratio. */
+    #map_div { width: 100%%; aspect-ratio: 1 / 1; margin: 5px auto; border-radius: var(--activity-radius); overflow: hidden; }
+    /* The elevation graph used to be a Leaflet control floating on top of
+       the map at a fixed 450px width, so it overflowed/clipped on any phone
+       narrower than that. It now lives in its own full-width block below
+       the map and is resized in JS to match the map's actual width. */
+    #elevation_div { width: 100%%; margin: 10px auto 0; overflow: hidden; }
+    /* Normally this positioning comes for free from Leaflet's control corner
+       wrapper; since the graph now lives outside of it, its own toggle/close
+       icons (position: absolute) need this to anchor to the graph box
+       instead of the next positioned ancestor up the page. */
+    #elevation_div .heightgraph { position: relative; }
+    /* The library's own default (10px) happens to already match; pinned to
+       the shared variable explicitly so it can't silently drift from the map. */
+    #elevation_div .heightgraph-container { border-radius: var(--activity-radius) !important; }
+    /* The library ships styled for a light page: near-black axis text and a
+       near-white card. This blog is dark (base.css body), so left as-is the
+       graph would render as a bright white box with barely-visible black
+       hairlines. Re-themed to the site's own palette (main.css: #262626/
+       #33332f backgrounds, #E8E8E3 text, #fd9720 accent). */
+    #elevation_div .heightgraph-container { background-color: rgba(38, 38, 38, 0.92) !important; }
+    #elevation_div .tick, #elevation_div .tick text { fill: #aaa9a3 !important; }
+    #elevation_div .axis path { stroke: #777 !important; }
+    #elevation_div .grid .tick line { stroke: rgba(232, 232, 227, 0.14) !important; }
+    /* The chart's own hover tooltip (distance/elevation/segment/steepness
+       text + vertical crosshair) - re-themed the same way as the rest of
+       the graph, since it defaults to black-on-white. */
+    #elevation_div .focusbox { fill: #E8E8E3 !important; }
+    #elevation_div .focusbox rect { fill: rgba(38, 38, 38, 0.95) !important; stroke: #777 !important; }
+    #elevation_div .focusLine line { stroke: #E8E8E3 !important; }
+    /* Over on the map itself, that same hover also draws a dot at the
+       corresponding route position plus a leader line and elevation-value
+       label next to it (all on the map's own SVG overlay, not part of
+       #elevation_div). The label+line duplicate what the chart tooltip
+       above already says, so only those two are dropped; the dot
+       (.height-focus.circle) stays, left unstyled/untouched below. */
+    #map_div .height-focus.line, #map_div .height-focus.label { display: none !important; }
+    /* No longer any per-segment category to explain (see `expandControls`
+       and the steepness bins below) - the legend is just visual noise. */
+    #elevation_div .legend, #elevation_div .legend-hover { display: none !important; }
+    /* Separate from the legend above: a "Steepness" label with left/right
+       arrows for cycling between multiple graph types (elevation/gradient/
+       speed etc). There's only ever the one type here, so it's just an
+       unstyled black label and a dead arrow rather than a useful control. */
+    #elevation_div .select-info, #elevation_div .select-symbol { display: none !important; }
+    /* A third always-created, no-disable-option control: a draggable
+       reference line (the arrow is its drag handle, cursor:move) for
+       marking an elevation threshold and highlighting matching segments on
+       the map. Not something this read-only embed needs. */
+    #elevation_div .horizontalLine, #elevation_div .horizontalLineText, #elevation_div .lineSelection { display: none !important; }
     /* Resize the Leaflet attribution text */
     .leaflet-control-attribution {
         font-size: 10px;  /* You can change this to any size you prefer */
@@ -46,16 +123,34 @@
         useCache: true,
         crossOrigin: true
     });
-    var SloLetalska = L.tileLayer.wms('https://ipi.eprostor.gov.si/wms-si-gurs-dts/wms',{ 
-        layers: 'DOF050', 
+    var SloLetalska = L.tileLayer.wms('https://ipi.eprostor.gov.si/wms-si-gurs-dts/wms',{
+        layers: 'DOF050',
         version:'1.3.0',
         maxZoom:19,
         attribution: '&copy; Geodetska uprava RS <a href=https://prostor4.gov.si/>gov.si</a>',
     });
+    // CARTO's dark_all tiles now require an API key (verified by actually
+    // rendering a fetched tile - the HTTP request itself returns 200 but
+    // the image is a "API KEY REQUIRED" placeholder). Esri's dark-gray
+    // canvas is still genuinely key-free; base fill + label overlay are two
+    // separate tile layers, combined below into one selectable option.
+    var EsriDarkBase = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}', {
+        maxZoom: 16,
+        attribution: '&copy; <a href="https://www.esri.com">Esri</a>',
+        useCache: true,
+        crossOrigin: true
+    });
+    var EsriDarkLabels = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}', {
+        maxZoom: 16,
+        useCache: true,
+        crossOrigin: true
+    });
+    var EsriDark = L.layerGroup([EsriDarkBase, EsriDarkLabels]);
     var baseMaps = {
     "OSM Mapnik": OpenStreetMap_Mapnik,
     "OpenTopoMap": OpenTopoMap,
     "Letalska": SloLetalska,
+    "Dark": EsriDark,
     };
 
     map.setView([46.4, 14.5], 9);
@@ -63,15 +158,21 @@
     L.control.scale({ metric: true, imperial: false }).addTo(map);
     OpenStreetMap_Mapnik.addTo(map);
 
-    var myStyle = {
-    "color": "#ff7800",
-    "weight": 5,
-    "opacity": 0.65
-    };
+    // A one-finger touch on an embedded map "steals" the gesture from the
+    // page's own scroll, which feels broken inside a blog post. Disable
+    // single-finger panning until the user deliberately taps the map once;
+    // pinch-zoom (a separate Leaflet handler) keeps working the whole time.
+    if (L.Browser.mobile) {
+      map.dragging.disable();
+      var mapHint = document.getElementById('map_hint');
+      mapHint.classList.add('visible');
+      map.once('click', function() {
+        map.dragging.enable();
+        mapHint.classList.remove('visible');
+      });
+    }
 
     var myPolyLine = %(POLYLINE)s
-    var myPolyLineLayer = L.polyline(myPolyLine, myStyle).addTo(map)
-
 
     if (myPolyLine.length >= 2) {
         var start = myPolyLine[0];
@@ -100,20 +201,6 @@
       console.warn("No line coordinates found in PolylineFeature.");
     }
 
-    var decorator = L.polylineDecorator(myPolyLineLayer, {
-        patterns: [
-            {
-                offset: 25,            // first arrow offset in pixels
-                repeat: 100,           // spacing between arrows in pixels
-                symbol: L.Symbol.arrowHead({
-                    pixelSize: 10,     // arrow size
-                    polygon: false,
-                    pathOptions: {stroke: true, color: 'gray', weight: 4}
-                })
-            }
-        ]
-    }).addTo(map);
-
     function polylineToGeoJSON(coords) {
       // latlng, height
       // polyline compared to geojson has flipped coords
@@ -124,61 +211,188 @@
       return out;
     }
     var geojson3d = polylineToGeoJSON(myPolyLine)
+
+    // Real per-segment gradient (%%), binned into a small color scale so the
+    // elevation profile itself shows where the climbs/descents actually are,
+    // and hovering shows the true steepness range instead of a placeholder.
+    // https://github.com/GIScience/Leaflet.Heightgraph/blob/master/src/L.Control.Heightgraph.js#L565
+    function haversineMeters(lat1, lon1, lat2, lon2) {
+      var R = 6371000, toRad = Math.PI / 180;
+      var dLat = (lat2 - lat1) * toRad, dLon = (lon2 - lon1) * toRad;
+      var a = Math.sin(dLat/2)**2 + Math.cos(lat1*toRad)*Math.cos(lat2*toRad)*Math.sin(dLon/2)**2;
+      return 2 * R * Math.asin(Math.sqrt(a));
+    }
+
+    var steepnessBins = [
+      {max: -6,       key: '0', text: '< -6%%',    color: '#5eb1e8'},
+      {max: 0,        key: '1', text: '-6%% to 0%%', color: '#78dce8'},
+      {max: 3,        key: '2', text: '0%% to 3%%',  color: '#a6e22d'},
+      {max: 6,        key: '3', text: '3%% to 6%%',  color: '#ffd866'},
+      {max: 9,        key: '4', text: '6%% to 9%%',  color: '#fd9720'},
+      {max: Infinity, key: '5', text: '9%%+',       color: '#ff6188'}
+    ];
+    function binForGradient(pct) {
+      for (var i = 0; i < steepnessBins.length; i++) {
+        if (pct <= steepnessBins[i].max) return steepnessBins[i];
+      }
+      return steepnessBins[steepnessBins.length - 1];
+    }
+
+    // Raw GPS/altimeter readings are noisy enough that point-to-point
+    // gradient flips bins almost every point, painting the profile as
+    // flickering confetti instead of clean climb/descent bands (the same
+    // issue the header-image route line had - see draw_polyline_on_image in
+    // stravaapi.py). Resampling the [distance, elevation] curve at a fixed
+    // step first, and computing gradient between those steps, fixes it.
+    var cumDist = [0];
+    for (var i = 1; i < geojson3d.length; i++) {
+      cumDist.push(cumDist[i-1] + haversineMeters(myPolyLine[i-1][0], myPolyLine[i-1][1], myPolyLine[i][0], myPolyLine[i][1]));
+    }
+    var totalDist = cumDist[cumDist.length - 1];
+
+    var stepMeters = 30;
+    var resampled = [];
+    var idx = 0;
+    for (var d = 0; d < totalDist; d += stepMeters) {
+      while (idx < cumDist.length - 2 && cumDist[idx+1] < d) idx++;
+      var d0 = cumDist[idx], d1 = cumDist[idx+1];
+      var t = d1 > d0 ? (d - d0) / (d1 - d0) : 0;
+      var p0 = geojson3d[idx], p1 = geojson3d[idx+1];
+      resampled.push([p0[0] + (p1[0]-p0[0])*t, p0[1] + (p1[1]-p0[1])*t, p0[2] + (p1[2]-p0[2])*t]);
+    }
+    resampled.push(geojson3d[geojson3d.length - 1]);
+
+    // A single resample step still leaves rolling terrain flickering between
+    // bins almost every point; average the elevation over a ~270m window
+    // (9 steps) so bin changes track real hills, not per-step wobble.
+    (function smoothElevation(points, window) {
+      var half = Math.floor(window / 2);
+      var smoothed = points.map(function(_, i) {
+        var sum = 0, count = 0;
+        for (var k = -half; k <= half; k++) {
+          var j = i + k;
+          if (j >= 0 && j < points.length) { sum += points[j][2]; count++; }
+        }
+        return sum / count;
+      });
+      points.forEach(function(p, i) { p[2] = Math.round(smoothed[i]); });
+    })(resampled, 9);
+
+    var bins = [];  // bins[i] is the gradient bin key of the step from resampled[i] to resampled[i+1]
+    for (var i = 1; i < resampled.length; i++) {
+      var distance = haversineMeters(resampled[i-1][1], resampled[i-1][0], resampled[i][1], resampled[i][0]);
+      var rise = resampled[i][2] - resampled[i-1][2];
+      // Ignore near-zero-distance steps rather than dividing by ~0 and
+      // getting a wild, meaningless gradient spike.
+      var gradientPct = distance > 1 ? (rise / distance) * 100 : 0;
+      bins.push(binForGradient(gradientPct).key);
+    }
+
+    // Even with smoothed elevation, a brief flat spot or dip in the middle
+    // of a long climb can flip the bin for just a step or two, chopping one
+    // real climb/descent into several slivers. Absorb any run shorter than
+    // ~150m into whichever bin comes before it, so a single sustained climb
+    // or descent reads as one continuous color.
+    (function despeckle(binKeys, minRunSteps) {
+      var i = 0;
+      while (i < binKeys.length) {
+        var j = i;
+        while (j < binKeys.length && binKeys[j] === binKeys[i]) j++;
+        if (i > 0 && (j - i) < minRunSteps) {
+          for (var k = i; k < j; k++) binKeys[k] = binKeys[i - 1];
+        }
+        i = j;
+      }
+    })(bins, Math.max(1, Math.round(150 / stepMeters)));
+
+    var features = [];
+    var currentBin = null;
+    var currentCoords = [];
+    for (var i = 0; i < resampled.length; i++) {
+      if (i > 0) {
+        var bin = bins[i - 1];
+        if (currentBin !== null && bin !== currentBin) {
+          // currentCoords already ends with resampled[i-1] (pushed by the
+          // previous iteration below) - that shared point is what keeps the
+          // line visually continuous across the color change.
+          features.push({type: "Feature", geometry: {type: "LineString", coordinates: currentCoords},
+                          properties: {attributeType: currentBin}});
+          currentCoords = [resampled[i-1]];
+        }
+        currentBin = bin;
+      }
+      currentCoords.push(resampled[i]);
+    }
+    if (currentBin !== null && currentCoords.length >= 2) {
+      features.push({type: "Feature", geometry: {type: "LineString", coordinates: currentCoords},
+                      properties: {attributeType: currentBin}});
+    }
+
     const myGeoJson = {
                       "type": "FeatureCollection",
-                      "features": [
-                        {
-                          "type": "Feature",
-                          "geometry": {
-                              "type": "LineString",
-                              "coordinates": geojson3d,
-                          },
-                          "properties": {
-                            "attributeType": "0"
-                          }
-                        }
-                      ],
+                      "features": features,
                       "properties": {
                         "name":"activity",
                         "summary": "Steepness"
                       }
-                    } 
-  
-  // This elevation supports plotting different gradients differently,
-  // but we would then have to split the featurecollection.features by gradient.
-  // If we don't define colormapping, the graph always gets weird auto-chosen colors
-  // for now, we set gradient 0 everywhere and change the translation 
-  // to something else that makes kinda sense :P 
-  // https://github.com/GIScience/Leaflet.Heightgraph/blob/master/src/L.Control.Heightgraph.js#L565
+                    }
 
-  var colorMappings = {
-    Steepness: {
-      '0': {
-          text: 'as best as ever!',
-          color: '#ff7800'
-      }
-    }
-  }
+    var binColorByKey = {};
+    steepnessBins.forEach(function(bin) { binColorByKey[bin.key] = bin.color; });
 
-  var translations = {type: 'Fun level:'}
+    // A dark casing drawn slightly wider underneath keeps the route legible
+    // over busy aerial/terrain tiles, regardless of which color segment is
+    // on top of it.
+    L.geoJson(myGeoJson, {
+      style: function() { return {color: '#141414', weight: 8, opacity: 0.55}; }
+    }).addTo(map);
+
+    // Colored by the same steepness bins as the elevation graph below, so
+    // the two read as one system: the steep bit on the graph is the same
+    // color as the steep bit on the map.
+    var myPolyLineLayer = L.geoJson(myGeoJson, {
+      style: function(feature) { return {color: binColorByKey[feature.properties.attributeType], weight: 5, opacity: 0.9}; }
+    }).addTo(map);
+
+  var colorMappings = { Steepness: {} };
+  steepnessBins.forEach(function(bin) {
+    colorMappings.Steepness[bin.key] = {text: bin.text, color: bin.color};
+  });
+
+  var translations = {type: 'Steepness:'}
+  var elevationDiv = document.getElementById('elevation_div');
   let options = {
-    width: 450,
+    width: elevationDiv.clientWidth,
     height: 150,
     mappings: colorMappings,
     translation: translations,
-    highlightStyle: {
-        color: "black"
-    },
+    // The graph always lives in its own block below the map now, so the
+    // hide/show toggle it offered when overlaid on the map is redundant.
+    expandControls: false,
     graphStyle: {
-        color: "#ff7800",
         opacity: 0.8,
         'fill-opacity': 0.5,
         'stroke-width': '2px'
     },
   }
   let hg = L.control.heightgraph(options);
+  // Leaflet.heightgraph only knows how to render itself as a control
+  // floating on the map, at a fixed pixel size. Add it to the map to get it
+  // built, then move its DOM node into our own full-width block below the
+  // map so it can be sized (and resized) independently of the map itself.
   hg.addTo(map);
+  elevationDiv.appendChild(hg.getContainer());
   hg.addData([myGeoJson]);
-  var myGeoJsonLayer = L.geoJson(myGeoJson,{style: myStyle})//.addTo(map);
   map.fitBounds(myPolyLineLayer.getBounds());
+
+  var resizeTimer;
+  function handleResize() {
+    map.invalidateSize();
+    hg.resize({width: elevationDiv.clientWidth, height: 150});
+  }
+  window.addEventListener('resize', function() {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(handleResize, 150);
+  });
+  window.addEventListener('orientationchange', handleResize);
 </script>
